@@ -44,6 +44,19 @@ class Settings(BaseSettings):
     # Reasoning models (e.g. o4-mini) reject non-default temperature — leave unset.
     azure_openai_temperature: Optional[float] = Field(default=None)
     log_level: str = "INFO"
+    
+    # ── JWT auth (sliding window) ─────────────────────────────────────────────
+    jwt_secret_key: str = Field(
+        default="dev-only-change-me",
+        description="HMAC secret for signing JWTs. Override in .env.",
+    )
+    jwt_algorithm: str = Field(default="HS256")
+    jwt_idle_minutes: int = Field(
+        default=30,
+        description="Sliding window: token lifetime per request. Each authenticated "
+                    "request issues a fresh token, resetting this idle timeout.",
+    )
+
     database_path: str = Field(
         default_factory=lambda: str(_backend_root() / "data" / "db.sqlite"),
     )
