@@ -9,6 +9,7 @@ from iso_robot.deps import (
     get_app_settings,
     get_audit_repo,
     get_control_document_repo,
+    get_control_repo,
     get_document_repo,
     get_folder_repo,
     get_job_repo,
@@ -26,6 +27,7 @@ from iso_robot.repositories.org_repository import (
     FolderRepository,
     OrgRepository,
 )
+from iso_robot.repositories.control_repository import ControlRepository
 from iso_robot.schemas.api import ApiResponse, JobResponse
 from pathlib import Path
 
@@ -150,4 +152,20 @@ async def extract_controls_for_org(
             "folder": ctrl_folder,
             "processing_status": "in_progress",
         },
+    )
+
+async def control_stats_for_org(
+    client_org_id: str,
+    org_repo: Annotated[OrgRepository, Depends(get_org_repo)],
+    ctrl_repo: Annotated[ControlRepository, Depends(get_control_repo)],
+) -> ApiResponse:
+    """Per-org counts: documents that produced controls, and total controls."""
+    org = await org_repo.get_by_id(client_org_id)
+    if not org:
+        raise APIError("Organisation not found", code="CLIENT_ORG_NOT_FOUND", status_code=404)
+    stats = await ctrl_repo.stats_for_org(client_org_id)
+    return ApiResponse(
+        status="success",
+        message="Control stats retrieved",
+        data={"client_org_id": client_org_id, **stats},
     )

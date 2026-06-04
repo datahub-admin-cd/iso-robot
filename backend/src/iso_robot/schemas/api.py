@@ -57,6 +57,7 @@ class JobResponse(BaseModel):
 class ControlListItem(BaseModel):
     id: str
     document_id: str
+    client_org_id: Optional[str] = None
     control_text: Optional[str] = None
     section_ref: Optional[str] = None
     framework: Optional[str] = None

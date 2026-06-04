@@ -365,6 +365,7 @@ async def extract_controls_for_document(
     settings: Settings,
     conn: aiosqlite.Connection,
     document_id: str,
+    client_org_id: Optional[str] = None,
 ) -> int:
     doc_repo = DocumentRepository(conn)
     ctrl_repo = ControlRepository(conn)
@@ -427,6 +428,7 @@ async def extract_controls_for_document(
                 {
                     "id": str(uuid.uuid4()),
                     "document_id": document_id,
+                    "client_org_id": client_org_id,
                     "control_text": ct,
                     "section_ref": str(c["section_ref"]) if c.get("section_ref") else None,
                     "framework": str(c["framework"]) if c.get("framework") else None,
@@ -467,9 +469,10 @@ async def run_extract_controls_job(
         rows = await doc_repo.list_all(limit=500, offset=0)
         doc_ids = [str(r["id"]) for r in rows if str(r.get("path", "")).lower().endswith(".pdf")]
 
+    cid = payload.get("client_org_id")
     for doc_id in doc_ids:
         try:
-            await extract_controls_for_document(settings, conn, doc_id)
+            await extract_controls_for_document(settings, conn, doc_id, client_org_id=cid)
         except Exception:
             logger.exception("Extract failed for document %s", doc_id)
             if not settings.use_llm_fallback:

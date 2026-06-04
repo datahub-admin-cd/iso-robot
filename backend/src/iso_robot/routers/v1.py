@@ -83,6 +83,12 @@ router.add_api_route(
     tags=["control-documents"],
 )
 router.add_api_route(
+    "/control-documents/stats/{client_org_id}",
+    controls_org.control_stats_for_org,
+    methods=["GET"],
+    tags=["control-documents"],
+)
+router.add_api_route(
     "/control-documents/{client_org_id}",
     org.list_control_documents,
     methods=["GET"],
@@ -103,7 +109,7 @@ router.add_api_route(
     tags=["business-demography"],
 )
 
-# Org-aware Control Extraction (API 4 — Nishant's requirement)
+# Org-aware Control Extraction (API 4 — Newrequirement)
 router.add_api_route(
     "/control-documents/extract/{client_org_id}",
     controls_org.extract_controls_for_org,

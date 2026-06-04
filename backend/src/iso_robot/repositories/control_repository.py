@@ -23,16 +23,18 @@ class ControlRepository:
     async def insert_many(
         self,
         rows: List[dict[str, Any]],
+        client_org_id: Optional[str] = None,
     ) -> None:
         for r in rows:
             await self._conn.execute(
                 """
-                INSERT INTO controls (id, document_id, control_text, section_ref, framework, source_page, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO controls (id, document_id, client_org_id, control_text, section_ref, framework, source_page, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     r["id"],
                     r["document_id"],
+                    r.get("client_org_id") or client_org_id,
                     r.get("control_text"),
                     r.get("section_ref"),
                     r.get("framework"),
@@ -48,30 +50,42 @@ class ControlRepository:
         limit: int = 500,
         offset: int = 0,
         document_id: Optional[str] = None,
+        client_org_id: Optional[str] = None,
     ) -> List[dict[str, Any]]:
+        clauses = []
+        params: list[Any] = []
         if document_id:
-            cur = await self._conn.execute(
-                """
-                SELECT id, document_id, control_text, section_ref, framework, source_page, created_at
-                FROM controls
-                WHERE document_id = ?
-                ORDER BY datetime(created_at) DESC
-                LIMIT ? OFFSET ?
-                """,
-                (document_id, limit, offset),
-            )
-        else:
-            cur = await self._conn.execute(
-                """
-                SELECT id, document_id, control_text, section_ref, framework, source_page, created_at
-                FROM controls
-                ORDER BY datetime(created_at) DESC
-                LIMIT ? OFFSET ?
-                """,
-                (limit, offset),
-            )
+            clauses.append("document_id = ?")
+            params.append(document_id)
+        if client_org_id:
+            clauses.append("client_org_id = ?")
+            params.append(client_org_id)
+        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+        params.extend([limit, offset])
+        cur = await self._conn.execute(
+            f"""
+            SELECT id, document_id, client_org_id, control_text, section_ref, framework, source_page, created_at
+            FROM controls
+            {where}
+            ORDER BY datetime(created_at) DESC
+            LIMIT ? OFFSET ?
+            """,
+            tuple(params),
+        )
         rows = await cur.fetchall()
         return [dict(x) for x in rows]
+    
 
     async def get_by_document(self, document_id: str) -> List[dict[str, Any]]:
         return await self.list_all(limit=10000, offset=0, document_id=document_id)
+    
+    async def stats_for_org(self, client_org_id: str) -> dict[str, int]:
+        cur = await self._conn.execute(
+            """
+            SELECT COUNT(*) AS controls, COUNT(DISTINCT document_id) AS documents
+            FROM controls WHERE client_org_id = ?
+            """,
+            (client_org_id,),
+        )
+        row = await cur.fetchone()
+        return {"controls": row["controls"], "documents": row["documents"]}
