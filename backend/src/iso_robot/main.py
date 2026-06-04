@@ -13,6 +13,7 @@ from iso_robot.config import get_settings
 from iso_robot.errors import APIError
 from iso_robot.handlers.health import health
 from iso_robot.repositories.schema import ensure_schema
+from iso_robot.middleware import SessionValidationMiddleware
 from iso_robot.routers.v1 import router as v1_router
 
 
@@ -30,6 +31,7 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(title="ISO Robot API", lifespan=lifespan)
+    app.add_middleware(SessionValidationMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[

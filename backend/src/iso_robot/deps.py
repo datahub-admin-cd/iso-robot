@@ -103,15 +103,11 @@ async def get_audit_repo(
     return AuditLogRepository(db)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Auth dependency — verify Bearer JWT, return current user, and slide the window
-# by issuing a fresh token on every authenticated request.
+# Auth dependency — reads the claims the middleware already validated, loads user.
 # ─────────────────────────────────────────────────────────────────────────────
-from typing import Optional  # noqa: E402
-
-from fastapi import Header, Response  # noqa: E402
+from fastapi import Request  # noqa: E402
 
 from iso_robot.errors import APIError  # noqa: E402
-from iso_robot.helpers.auth import create_token, decode_token  # noqa: E402
 from iso_robot.repositories.org_repository import UserRepository  # noqa: E402
 
 
@@ -122,24 +118,13 @@ async def get_user_repo_for_auth(
 
 
 async def get_current_user(
-    response: Response,
+    request: Request,
     user_repo: Annotated[UserRepository, Depends(get_user_repo_for_auth)],
-    authorization: Annotated[Optional[str], Header()] = None,
 ) -> dict:
-    if not authorization or not authorization.lower().startswith("bearer "):
-        raise APIError("Missing or invalid Authorization header", code="UNAUTHORIZED", status_code=401)
-
-    token = authorization.split(" ", 1)[1].strip()
-    payload = decode_token(token)
-    if not payload or "sub" not in payload:
-        raise APIError("Invalid or expired token", code="TOKEN_INVALID", status_code=401)
-
-    user = await user_repo.get_by_id(payload["sub"])
+    claims = getattr(request.state, "user_claims", None)
+    if not claims or "sub" not in claims:
+        raise APIError("Not authenticated", code="UNAUTHORIZED", status_code=401)
+    user = await user_repo.get_by_id(claims["sub"])
     if not user or not user.get("is_active", 1):
         raise APIError("User not found or inactive", code="UNAUTHORIZED", status_code=401)
-
-    # SLIDING WINDOW: hand back a brand-new token so the idle clock resets.
-    response.headers["X-Refresh-Token"] = create_token(
-        user["id"], user["client_org_id"], user["role"]
-    )
     return user
