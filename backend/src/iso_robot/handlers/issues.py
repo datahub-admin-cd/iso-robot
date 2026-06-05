@@ -7,7 +7,7 @@ import aiosqlite
 from fastapi import BackgroundTasks, Depends, File, Query, UploadFile
 
 from iso_robot.config import Settings
-from iso_robot.deps import get_app_settings, get_db, get_job_repo
+from iso_robot.deps import get_app_settings, get_db, get_job_repo, get_org_repo
 from iso_robot.domain.job_runner import execute_job
 from iso_robot.domain.job_service import create_job
 from iso_robot.domain.issues_import import import_issues_from_csv
@@ -15,8 +15,10 @@ from iso_robot.domain.poc_import import default_poc_path
 from iso_robot.domain.poc_seed import seed_risk_sources_and_issues
 from iso_robot.errors import APIError
 from iso_robot.repositories.issue_repository import IssueClassificationRepository, IssueRepository
+from iso_robot.repositories.org_repository import OrgRepository
 from iso_robot.repositories.job_repository import JobRepository
 from iso_robot.schemas.api import (
+    ApiResponse,
     ClassifyIssuesRequest,
     IssueClassificationResponse,
     IssueListItem,
@@ -45,6 +47,7 @@ def _issue_list_item_from_row(r: dict, *, classification: Optional[dict[str, Any
         source_document_id=raw.get("source_document_id") if isinstance(raw.get("source_document_id"), str) else None,
         control_ids=control_ids,
         origin=raw.get("origin") if isinstance(raw.get("origin"), str) else None,
+        client_org_id=r.get("client_org_id"),
     )
 
 
@@ -57,10 +60,14 @@ async def list_issues(
         default=None,
         description="Filter to issues whose raw payload references this document (e.g. from_controls).",
     ),
+    client_org_id: Optional[str] = Query(
+        default=None,
+        description="Filter to issues tagged with this organisation.",
+    ),
 ) -> list[IssueListItem]:
     issues = IssueRepository(db)
     cls_repo = IssueClassificationRepository(db)
-    rows = await issues.list_all(limit=limit, offset=offset, source_document_id=source_document_id)
+    rows = await issues.list_all(limit=limit, offset=offset, source_document_id=source_document_id, client_org_id=client_org_id)
     cls_map: dict[str, dict] = {}
     if include_classification and rows:
         cls_map = await cls_repo.map_for_issues([str(r["id"]) for r in rows])
@@ -163,3 +170,20 @@ async def import_issues_csv(
         raise APIError("Empty file", code="empty_upload", status_code=400)
     stats = await import_issues_from_csv(db, raw)
     return IssuesImportResponse(**stats)
+
+
+async def issue_stats_for_org(
+    client_org_id: str,
+    db: Annotated[aiosqlite.Connection, Depends(get_db)],
+    org_repo: Annotated[OrgRepository, Depends(get_org_repo)],
+) -> ApiResponse:
+    """Per-org counts: issues, and the distinct source documents that produced them."""
+    org = await org_repo.get_by_id(client_org_id)
+    if not org:
+        raise APIError("Organisation not found", code="CLIENT_ORG_NOT_FOUND", status_code=404)
+    stats = await IssueRepository(db).stats_for_org(client_org_id)
+    return ApiResponse(
+        status="success",
+        message="Issue stats retrieved",
+        data={"client_org_id": client_org_id, **stats},
+    )

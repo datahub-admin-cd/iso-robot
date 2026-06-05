@@ -82,6 +82,7 @@ class IssueListItem(BaseModel):
     source_document_id: Optional[str] = None
     control_ids: Optional[List[str]] = None
     origin: Optional[str] = Field(default=None, description="e.g. from_controls")
+    client_org_id: Optional[str] = None
 
 
 class CandidateRiskListItem(BaseModel):

@@ -159,6 +159,8 @@ async def run_issues_from_controls_job(
     controls = await ctrl_repo.get_by_document(document_id)
     if not controls:
         return {"created": 0, "document_id": document_id, "message": "no_controls_for_document"}
+    # Issues inherit the org of the controls they are derived from (controls are org-tagged).
+    client_org_id = next((c.get("client_org_id") for c in controls if c.get("client_org_id")), None)
 
     if replace:
         await issue_repo.delete_derived_from_document(document_id, origin="from_controls")
@@ -190,6 +192,7 @@ async def run_issues_from_controls_job(
                 body=iss.get("body"),
                 region_hint=rh,
                 raw_payload=raw_payload,
+                client_org_id=client_org_id,
             )
             created_ids.append(iid)
 

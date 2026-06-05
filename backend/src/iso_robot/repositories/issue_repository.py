@@ -38,11 +38,12 @@ class IssueRepository:
         effective_date: Optional[str] = None,
         region_hint: Optional[str] = None,
         raw_payload: Optional[dict[str, Any]] = None,
+        client_org_id: Optional[str] = None,
     ) -> None:
         await self._conn.execute(
             """
-            INSERT INTO issues (id, risk_source_id, title, body, effective_date, region_hint, raw_payload_json, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO issues (id, risk_source_id, title, body, effective_date, region_hint, raw_payload_json, client_org_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 issue_id,
@@ -52,6 +53,7 @@ class IssueRepository:
                 effective_date,
                 region_hint,
                 dumps_json(raw_payload or {}),
+                client_org_id,
                 _now_iso(),
             ),
         )
@@ -110,28 +112,28 @@ class IssueRepository:
         limit: int = 2000,
         offset: int = 0,
         source_document_id: Optional[str] = None,
+        client_org_id: Optional[str] = None,
     ) -> List[dict[str, Any]]:
+        clauses: List[str] = []
+        params: List[Any] = []
         if source_document_id:
-            cur = await self._conn.execute(
-                """
-                SELECT id, risk_source_id, title, body, effective_date, region_hint, raw_payload_json, created_at
-                FROM issues
-                WHERE json_extract(raw_payload_json, '$.source_document_id') = ?
-                ORDER BY datetime(created_at) DESC
-                LIMIT ? OFFSET ?
-                """,
-                (source_document_id, limit, offset),
-            )
-        else:
-            cur = await self._conn.execute(
-                """
-                SELECT id, risk_source_id, title, body, effective_date, region_hint, raw_payload_json, created_at
-                FROM issues
-                ORDER BY datetime(created_at) DESC
-                LIMIT ? OFFSET ?
-                """,
-                (limit, offset),
-            )
+            clauses.append("json_extract(raw_payload_json, '$.source_document_id') = ?")
+            params.append(source_document_id)
+        if client_org_id:
+            clauses.append("client_org_id = ?")
+            params.append(client_org_id)
+        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+        params.extend([limit, offset])
+        cur = await self._conn.execute(
+            f"""
+            SELECT id, risk_source_id, title, body, effective_date, region_hint, raw_payload_json, client_org_id, created_at
+            FROM issues
+            {where}
+            ORDER BY datetime(created_at) DESC
+            LIMIT ? OFFSET ?
+            """,
+            params,
+        )
         rows = await cur.fetchall()
         out = []
         for r in rows:
@@ -143,7 +145,7 @@ class IssueRepository:
     async def get_by_id(self, issue_id: str) -> Optional[dict[str, Any]]:
         cur = await self._conn.execute(
             """
-            SELECT id, risk_source_id, title, body, effective_date, region_hint, raw_payload_json, created_at
+            SELECT id, risk_source_id, title, body, effective_date, region_hint, raw_payload_json, client_org_id, created_at
             FROM issues WHERE id = ?
             """,
             (issue_id,),
@@ -185,6 +187,18 @@ class IssueRepository:
             d["raw_payload"] = _loads_json(d.pop("raw_payload_json", None))
             out.append(d)
         return out
+    
+    async def stats_for_org(self, client_org_id: str) -> dict[str, int]:
+        cur = await self._conn.execute(
+            """
+            SELECT COUNT(*) AS issues,
+                   COUNT(DISTINCT json_extract(raw_payload_json, '$.source_document_id')) AS documents
+            FROM issues WHERE client_org_id = ?
+            """,
+            (client_org_id,),
+        )
+        row = await cur.fetchone()
+        return {"issues": row["issues"], "documents": row["documents"]}
 
 
 class IssueClassificationRepository:
