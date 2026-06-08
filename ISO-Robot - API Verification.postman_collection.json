@@ -416,7 +416,7 @@
                 "upload"
               ]
             },
-            "description": "## Purpose\nMultipart upload of PDF/DOCX/XLSX/TXT to org folder.\n\n## Form fields\n`client_org_id`, `document_type`, `file`\n\n## Response 200\nApiResponse with new ControlDocumentResponse in `data`.\n400 FILE_UPLOAD_FAILED · 404 CLIENT_ORG_NOT_FOUND"
+            "description": "## Purpose\nMultipart upload of PDF/DOCX/XLSX/TXT to org folder. Supports **multiple files in one request** — add several form fields all named `file` (same `document_type` / `document_category` apply to each).\n\n## Form fields\n`client_org_id`, `document_type`, `document_category`, `file` (repeat for multiple files)\n\n## Response 200\nSingle file: ApiResponse with ControlDocumentResponse in `data`.\nMultiple files: `data.documents` array + `data.uploaded_count`; partial failures in `errors`."
           },
           "response": []
         },

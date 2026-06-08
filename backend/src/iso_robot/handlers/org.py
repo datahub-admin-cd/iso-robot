@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, List, Optional
+from typing import Annotated, Any, List, Optional
 
 from fastapi import Depends, File, Form, UploadFile
 
@@ -163,47 +163,57 @@ async def get_demography(
 
 # ── API 2: Control Document Upload ────────────────────────────────────────────
 
-async def upload_control_document(
-    client_org_id: Annotated[str, Form()],
-    tenant_id: Annotated[Optional[str], Form()] = None,
-    uploaded_by: Annotated[Optional[str], Form()] = None,
-    document_type: Annotated[Optional[str], Form()] = None,
-    document_category: Annotated[Optional[str], Form()] = None,
-    document_version: Annotated[Optional[str], Form()] = None,
-    file: UploadFile = File(...),
-    org_repo: OrgRepository = Depends(get_org_repo),
-    folder_repo: FolderRepository = Depends(get_folder_repo),
-    doc_repo: ControlDocumentRepository = Depends(get_control_document_repo),
-    audit_repo: AuditLogRepository = Depends(get_audit_repo),
-    settings: Settings = Depends(get_app_settings),
-) -> ApiResponse:
-    """API 2: Upload a control document to the org-specific folder."""
-    # Validate org
-    org = await org_repo.get_by_id(client_org_id)
-    if not org:
-        raise APIError("Organisation not found", code="CLIENT_ORG_NOT_FOUND", status_code=404)
+_ALLOWED_CONTROL_DOC_SUFFIXES = {".pdf", ".docx", ".xlsx", ".txt"}
 
-    # Validate file type
-    allowed = {".pdf", ".docx", ".xlsx", ".txt"}
-    suffix = Path(file.filename or "").suffix.lower()
-    if suffix not in allowed:
+
+def _unique_upload_dest(folder: Path, filename: str, reserved: set[str]) -> tuple[Path, str]:
+    """Pick a non-colliding destination under folder (also avoids duplicates in one batch)."""
+    base = Path(filename or "upload").name
+    stem = Path(base).stem
+    suffix = Path(base).suffix
+    candidate = base
+    n = 1
+    while candidate.lower() in reserved or (folder / candidate).exists():
+        candidate = f"{stem}_{n}{suffix}" if suffix else f"{stem}_{n}"
+        n += 1
+    reserved.add(candidate.lower())
+    return folder / candidate, candidate
+
+
+async def _save_control_upload(
+    *,
+    upload: UploadFile,
+    ctrl_folder: str,
+    client_org_id: str,
+    document_type: Optional[str],
+    document_category: Optional[str],
+    document_version: Optional[str],
+    uploaded_by: Optional[str],
+    doc_repo: ControlDocumentRepository,
+    reserved_names: set[str],
+) -> dict[str, Any]:
+    suffix = Path(upload.filename or "").suffix.lower()
+    if suffix not in _ALLOWED_CONTROL_DOC_SUFFIXES:
         raise APIError(
-            f"File type {suffix} not allowed. Use: {', '.join(allowed)}",
+            f"File type {suffix or '(none)'} not allowed for {upload.filename!r}. "
+            f"Use: {', '.join(sorted(_ALLOWED_CONTROL_DOC_SUFFIXES))}",
             code="FILE_UPLOAD_FAILED",
             status_code=400,
         )
 
-    folders = await sync_org_folder_mapping(
-        settings,
-        folder_repo,
-        client_org_id=client_org_id,
-        org_slug=str(org["slug"]),
+    dest, safe_name = _unique_upload_dest(
+        Path(ctrl_folder).resolve(),
+        Path(upload.filename or "upload").name,
+        reserved_names,
     )
-    ctrl_folder = folders["control_documents"]
+    content = await upload.read()
+    if not content:
+        raise APIError(
+            f"File {upload.filename!r} is empty",
+            code="FILE_UPLOAD_FAILED",
+            status_code=400,
+        )
 
-    safe_name = Path(file.filename or "upload").name
-    dest = Path(ctrl_folder).resolve() / safe_name
-    content = await file.read()
     try:
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(content)
@@ -214,7 +224,6 @@ async def upload_control_document(
             status_code=500,
         ) from exc
 
-    # Save metadata to database
     doc = await doc_repo.create(
         client_org_id=client_org_id,
         filename=safe_name,
@@ -224,20 +233,109 @@ async def upload_control_document(
         document_version=document_version,
         uploaded_by=uploaded_by,
     )
+    return doc
+
+
+async def upload_control_document(
+    client_org_id: Annotated[str, Form()],
+    tenant_id: Annotated[Optional[str], Form()] = None,
+    uploaded_by: Annotated[Optional[str], Form()] = None,
+    document_type: Annotated[Optional[str], Form()] = None,
+    document_category: Annotated[Optional[str], Form()] = None,
+    document_version: Annotated[Optional[str], Form()] = None,
+    file: Annotated[
+        List[UploadFile],
+        File(description="One or more files; repeat the 'file' field for multiple uploads"),
+    ] = File(...),
+    org_repo: OrgRepository = Depends(get_org_repo),
+    folder_repo: FolderRepository = Depends(get_folder_repo),
+    doc_repo: ControlDocumentRepository = Depends(get_control_document_repo),
+    audit_repo: AuditLogRepository = Depends(get_audit_repo),
+    settings: Settings = Depends(get_app_settings),
+) -> ApiResponse:
+    """API 2: Upload one or more control documents to the org-specific folder."""
+    if not file:
+        raise APIError("At least one file is required", code="FILE_UPLOAD_FAILED", status_code=400)
+
+    org = await org_repo.get_by_id(client_org_id)
+    if not org:
+        raise APIError("Organisation not found", code="CLIENT_ORG_NOT_FOUND", status_code=404)
+
+    folders = await sync_org_folder_mapping(
+        settings,
+        folder_repo,
+        client_org_id=client_org_id,
+        org_slug=str(org["slug"]),
+    )
+    ctrl_folder = folders["control_documents"]
+
+    uploaded: list[dict[str, Any]] = []
+    errors: list[dict[str, Any]] = []
+    reserved_names: set[str] = set()
+
+    for upload in file:
+        try:
+            doc = await _save_control_upload(
+                upload=upload,
+                ctrl_folder=ctrl_folder,
+                client_org_id=client_org_id,
+                document_type=document_type,
+                document_category=document_category,
+                document_version=document_version,
+                uploaded_by=uploaded_by,
+                doc_repo=doc_repo,
+                reserved_names=reserved_names,
+            )
+            uploaded.append(doc)
+        except APIError as exc:
+            errors.append(
+                {
+                    "filename": upload.filename,
+                    "code": exc.code,
+                    "message": exc.message,
+                }
+            )
+
+    if not uploaded:
+        detail = errors[0]["message"] if len(errors) == 1 else "No files were uploaded"
+        raise APIError(detail, code="FILE_UPLOAD_FAILED", status_code=400)
 
     await audit_repo.log(
         api_name="control_document_upload",
         client_org_id=client_org_id,
         tenant_id=tenant_id,
         requested_by=uploaded_by,
-        status="success",
-        output_metadata={"document_id": doc["id"], "filename": safe_name},
+        status="partial" if errors else "success",
+        output_metadata={
+            "document_ids": [d["id"] for d in uploaded],
+            "filenames": [d["filename"] for d in uploaded],
+            "failed_count": len(errors),
+        },
     )
 
+    if len(uploaded) == 1 and not errors:
+        return ApiResponse(
+            status="success",
+            message="Control document uploaded successfully",
+            data=ControlDocumentResponse(**uploaded[0]).model_dump(),
+        )
+
+    message = f"{len(uploaded)} control document(s) uploaded successfully"
+    if errors:
+        message += f"; {len(errors)} failed"
+
+    data: dict[str, Any] = {
+        "documents": [ControlDocumentResponse(**d).model_dump() for d in uploaded],
+        "uploaded_count": len(uploaded),
+    }
+    if len(uploaded) == 1:
+        data.update(ControlDocumentResponse(**uploaded[0]).model_dump())
+
     return ApiResponse(
-        status="success",
-        message="Control document uploaded successfully",
-        data=ControlDocumentResponse(**doc).model_dump(),
+        status="partial" if errors else "success",
+        message=message,
+        data=data,
+        errors=errors,
     )
 
 
