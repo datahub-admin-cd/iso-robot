@@ -19,6 +19,5 @@ frontend/node_modules/
 .cursor/
 .claude/
 final_control_output(Sheet1).csv
-data/curated/
 venv/
 .venv/
