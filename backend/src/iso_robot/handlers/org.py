@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 from typing import Annotated, List, Optional
 
@@ -32,6 +31,8 @@ from iso_robot.repositories.org_repository import (
     TenantRepository,
     UserRepository,
 )
+from iso_robot.domain.repair_storage_paths import sync_org_folder_mapping
+from iso_robot.helpers.org_paths import resolve_file_in_folder
 from iso_robot.schemas.api import (
     ApiResponse,
     ControlDocumentResponse,
@@ -66,18 +67,12 @@ async def create_org(
     )
     org_id = org["id"]
 
-    # Create physical folders on disk
-    base = settings.resolved_database_path().parent / "org_documents" / org["slug"]
-    folder_types = {
-        "control_documents": str(base / "control_documents"),
-        "issues": str(base / "issues"),
-        "risk_outputs": str(base / "risk_outputs"),
-    }
-    for folder_path in folder_types.values():
-        Path(folder_path).mkdir(parents=True, exist_ok=True)
-
-    # Store folder paths in database
-    await folder_repo.insert_bulk(org_id, folder_types)
+    folder_types = await sync_org_folder_mapping(
+        settings,
+        folder_repo,
+        client_org_id=org_id,
+        org_slug=org["slug"],
+    )
 
     # Create tenant mapping (tenant_id = slug for simplicity)
     await tenant_repo.create(client_org_id=org_id, tenant_id=body.slug)
@@ -198,25 +193,26 @@ async def upload_control_document(
             status_code=400,
         )
 
-    # Find the org's control_documents folder
-    folders = await folder_repo.get_folders_for_org(client_org_id)
-    ctrl_folder = folders.get("control_documents")
-    if not ctrl_folder:
-        # Auto-create it if missing
-        base = settings.resolved_database_path().parent / "org_documents" / client_org_id
-        ctrl_folder = str(base / "control_documents")
-        Path(ctrl_folder).mkdir(parents=True, exist_ok=True)
-        await folder_repo.upsert(
-            client_org_id=client_org_id,
-            folder_type="control_documents",
-            folder_path=ctrl_folder,
-        )
+    folders = await sync_org_folder_mapping(
+        settings,
+        folder_repo,
+        client_org_id=client_org_id,
+        org_slug=str(org["slug"]),
+    )
+    ctrl_folder = folders["control_documents"]
 
-    # Save file to disk
     safe_name = Path(file.filename or "upload").name
-    dest = Path(ctrl_folder) / safe_name
+    dest = Path(ctrl_folder).resolve() / safe_name
     content = await file.read()
-    dest.write_bytes(content)
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(content)
+    except OSError as exc:
+        raise APIError(
+            f"Failed to write upload to {dest}: {exc}",
+            code="FILE_UPLOAD_FAILED",
+            status_code=500,
+        ) from exc
 
     # Save metadata to database
     doc = await doc_repo.create(
@@ -247,13 +243,43 @@ async def upload_control_document(
 
 async def list_control_documents(
     client_org_id: str,
+    org_repo: Annotated[OrgRepository, Depends(get_org_repo)],
+    folder_repo: Annotated[FolderRepository, Depends(get_folder_repo)],
     doc_repo: Annotated[ControlDocumentRepository, Depends(get_control_document_repo)],
+    settings: Annotated[Settings, Depends(get_app_settings)],
 ) -> ApiResponse:
+    org = await org_repo.get_by_id(client_org_id)
+    if not org:
+        raise APIError("Organisation not found", code="CLIENT_ORG_NOT_FOUND", status_code=404)
+
+    folders = await sync_org_folder_mapping(
+        settings,
+        folder_repo,
+        client_org_id=client_org_id,
+        org_slug=str(org["slug"]),
+    )
+    ctrl_folder = folders["control_documents"]
+
     docs = await doc_repo.list_for_org(client_org_id)
+    out = []
+    for d in docs:
+        filename = str(d.get("filename") or "")
+        resolved = resolve_file_in_folder(
+            ctrl_folder,
+            filename,
+            str(d.get("document_path") or ""),
+        )
+        resolved_str = str(resolved)
+        if resolved_str != str(d.get("document_path") or ""):
+            await doc_repo.update_document_path(str(d["id"]), resolved_str)
+        row = dict(d)
+        row["document_path"] = resolved_str
+        out.append(ControlDocumentResponse(**row).model_dump())
+
     return ApiResponse(
         status="success",
         message="Documents retrieved",
-        data={"documents": [ControlDocumentResponse(**d).model_dump() for d in docs]},
+        data={"documents": out},
     )
 
 

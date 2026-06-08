@@ -4,7 +4,9 @@ from typing import Annotated
 
 from fastapi import Depends
 
+from iso_robot.config import get_settings
 from iso_robot.deps import get_folder_repo, get_org_repo, get_tenant_repo, get_user_repo, get_audit_repo, get_current_user
+from iso_robot.domain.repair_storage_paths import sync_org_folder_mapping
 from iso_robot.errors import APIError
 from iso_robot.helpers.auth import create_token, hash_password, verify_password
 from iso_robot.repositories.org_repository import (
@@ -57,15 +59,18 @@ async def login(
     tenant = await tenant_repo.get_by_org(user["client_org_id"])
     tenant_id = tenant["tenant_id"] if tenant else None
 
-    # Get folder paths
-    folders_raw = await folder_repo.get_folders_for_org(user["client_org_id"])
-    folders = None
-    if folders_raw:
-        folders = LoginFolders(
-            control_documents_folder=folders_raw.get("control_documents", ""),
-            issues_folder=folders_raw.get("issues", ""),
-            risk_outputs_folder=folders_raw.get("risk_outputs", ""),
-        )
+    settings = get_settings()
+    folders_raw = await sync_org_folder_mapping(
+        settings,
+        folder_repo,
+        client_org_id=user["client_org_id"],
+        org_slug=str(org["slug"]),
+    )
+    folders = LoginFolders(
+        control_documents_folder=folders_raw.get("control_documents", ""),
+        issues_folder=folders_raw.get("issues", ""),
+        risk_outputs_folder=folders_raw.get("risk_outputs", ""),
+    )
 
     # Create token
     token = create_token(user["id"], user["client_org_id"], user["role"])

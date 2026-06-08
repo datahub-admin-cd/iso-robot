@@ -13,6 +13,7 @@ from iso_robot.config import get_settings
 from iso_robot.errors import APIError
 from iso_robot.handlers import auth
 from iso_robot.handlers.health import health
+from iso_robot.domain.repair_storage_paths import repair_storage_paths
 from iso_robot.repositories.schema import ensure_schema
 from iso_robot.middleware import SessionValidationMiddleware
 from iso_robot.routers.v1 import router as v1_router
@@ -27,6 +28,7 @@ async def lifespan(app: FastAPI):
     db_path.parent.mkdir(parents=True, exist_ok=True)
     async with aiosqlite.connect(str(db_path)) as conn:
         await ensure_schema(conn)
+        await repair_storage_paths(conn, settings)
     yield
 
 

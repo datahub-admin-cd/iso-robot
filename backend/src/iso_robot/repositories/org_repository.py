@@ -166,17 +166,45 @@ class FolderRepository:
     def __init__(self, conn: aiosqlite.Connection) -> None:
         self._conn = conn
 
-    async def upsert(self, *, client_org_id: str, folder_type: str, folder_path: str) -> None:
-        row_id = str(uuid.uuid4())
-        await self._conn.execute(
+    async def set_folder_path(
+        self,
+        *,
+        client_org_id: str,
+        folder_type: str,
+        folder_path: str,
+    ) -> None:
+        cur = await self._conn.execute(
             """
-            INSERT INTO folder_mapping (id, client_org_id, folder_type, folder_path, created_at)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET folder_path = excluded.folder_path
+            SELECT id FROM folder_mapping
+            WHERE client_org_id = ? AND folder_type = ?
             """,
-            (row_id, client_org_id, folder_type, folder_path, _now_iso()),
+            (client_org_id, folder_type),
         )
+        row = await cur.fetchone()
+        if row:
+            await self._conn.execute(
+                """
+                UPDATE folder_mapping SET folder_path = ?
+                WHERE client_org_id = ? AND folder_type = ?
+                """,
+                (folder_path, client_org_id, folder_type),
+            )
+        else:
+            await self._conn.execute(
+                """
+                INSERT INTO folder_mapping (id, client_org_id, folder_type, folder_path, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (str(uuid.uuid4()), client_org_id, folder_type, folder_path, _now_iso()),
+            )
         await self._conn.commit()
+
+    async def upsert(self, *, client_org_id: str, folder_type: str, folder_path: str) -> None:
+        await self.set_folder_path(
+            client_org_id=client_org_id,
+            folder_type=folder_type,
+            folder_path=folder_path,
+        )
 
     async def get_folders_for_org(self, client_org_id: str) -> Dict[str, str]:
         """Returns a dict like {'control_documents': '/path/...', 'issues': '/path/...'}"""
@@ -360,6 +388,13 @@ class ControlDocumentRepository:
         await self._conn.execute(
             "UPDATE control_documents SET processing_status = ? WHERE id = ?",
             (status, doc_id),
+        )
+        await self._conn.commit()
+
+    async def update_document_path(self, doc_id: str, document_path: str) -> None:
+        await self._conn.execute(
+            "UPDATE control_documents SET document_path = ? WHERE id = ?",
+            (document_path, doc_id),
         )
         await self._conn.commit()
 

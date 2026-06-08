@@ -28,6 +28,8 @@ from iso_robot.repositories.org_repository import (
     OrgRepository,
 )
 from iso_robot.repositories.control_repository import ControlRepository
+from iso_robot.domain.repair_storage_paths import sync_org_folder_mapping
+from iso_robot.helpers.org_paths import resolve_file_in_folder
 from iso_robot.schemas.api import ApiResponse, ExtractControlsForOrgRequest
 from pathlib import Path
 
@@ -65,18 +67,13 @@ async def extract_controls_for_org(
     if not org:
         raise APIError("Organisation not found", code="CLIENT_ORG_NOT_FOUND", status_code=404)
 
-    # Step 2: Get the org's control documents folder
-    folders = await folder_repo.get_folders_for_org(client_org_id)
-    ctrl_folder = folders.get("control_documents")
-
-    if not ctrl_folder:
-        raise APIError(
-            "No control documents folder found for this organisation. "
-            "Please upload documents first.",
-            code="FOLDER_NOT_FOUND",
-            status_code=400,
-        )
-
+    folders = await sync_org_folder_mapping(
+        settings,
+        folder_repo,
+        client_org_id=client_org_id,
+        org_slug=str(org["slug"]),
+    )
+    ctrl_folder = folders["control_documents"]
     folder_path = Path(ctrl_folder)
     if not folder_path.exists():
         raise APIError(
@@ -107,10 +104,16 @@ async def extract_controls_for_org(
 
         # Merge with control_documents table paths
         for cd in org_docs:
-            doc_path = str(cd.get("document_path", ""))
-            # Find the document record for this path
+            filename = str(cd.get("filename") or "")
+            resolved = resolve_file_in_folder(
+                ctrl_folder,
+                filename,
+                str(cd.get("document_path") or ""),
+            )
+            doc_path = str(resolved)
             for d in all_docs:
-                if str(d.get("path", "")) == doc_path:
+                d_path = str(d.get("path", ""))
+                if d_path == doc_path or Path(d_path).name == filename:
                     if d["id"] not in final_doc_ids:
                         final_doc_ids.append(str(d["id"]))
 

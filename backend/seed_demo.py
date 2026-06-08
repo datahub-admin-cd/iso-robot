@@ -13,6 +13,7 @@ from pathlib import Path
 import aiosqlite
 
 from iso_robot.config import get_settings
+from iso_robot.domain.repair_storage_paths import sync_org_folder_mapping
 from iso_robot.helpers.auth import hash_password
 from iso_robot.repositories.org_repository import (
     FolderRepository,
@@ -81,20 +82,13 @@ async def _ensure_org_folders(
         await tenant_repo.create(client_org_id=org_id, tenant_id=slug)
         print(f"  tenant  {slug}")
 
-    folders = await folder_repo.get_folders_for_org(org_id)
-    if folders:
-        return
-
-    base = settings.resolved_database_path().parent / "org_documents" / slug
-    paths = {
-        "control_documents": str(base / "control_documents"),
-        "issues": str(base / "issues"),
-        "risk_outputs": str(base / "risk_outputs"),
-    }
-    for p in paths.values():
-        Path(p).mkdir(parents=True, exist_ok=True)
-    await folder_repo.insert_bulk(org_id, paths)
-    print(f"  folders {base}")
+    paths = await sync_org_folder_mapping(
+        settings,
+        folder_repo,
+        client_org_id=org_id,
+        org_slug=slug,
+    )
+    print(f"  folders {paths['control_documents']}")
 
 
 async def _ensure_user(
