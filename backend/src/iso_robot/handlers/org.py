@@ -237,16 +237,16 @@ async def _save_control_upload(
 
 
 async def upload_control_document(
+    file: Annotated[
+        List[UploadFile],
+        File(description="One or more files; repeat the 'file' field for multiple uploads"),
+    ],
     client_org_id: Annotated[str, Form()],
     tenant_id: Annotated[Optional[str], Form()] = None,
     uploaded_by: Annotated[Optional[str], Form()] = None,
     document_type: Annotated[Optional[str], Form()] = None,
     document_category: Annotated[Optional[str], Form()] = None,
     document_version: Annotated[Optional[str], Form()] = None,
-    file: Annotated[
-        List[UploadFile],
-        File(description="One or more files; repeat the 'file' field for multiple uploads"),
-    ] = File(...),
     org_repo: OrgRepository = Depends(get_org_repo),
     folder_repo: FolderRepository = Depends(get_folder_repo),
     doc_repo: ControlDocumentRepository = Depends(get_control_document_repo),
