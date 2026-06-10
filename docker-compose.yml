@@ -1,0 +1,40 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: iso-robot-api:latest
+    container_name: iso-robot-api
+    ports:
+      - "${API_PORT:-8000}:8000"
+    # Optional secrets/config: copy .env.docker.example to .env (or backend/.env).
+    env_file:
+      - .env
+    environment:
+      DATABASE_PATH: /app/backend/data/db.sqlite
+      DOCUMENTS_DIR: /app/all-docs
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # Set to "true" on first boot to create demo orgs/users (idempotent).
+      RUN_SEED_DEMO: ${RUN_SEED_DEMO:-false}
+    volumes:
+      # SQLite DB + per-org upload folders persist here.
+      - ./backend/data:/app/backend/data
+      # Curated CSV and other repo data (read/write for seed endpoints).
+      - ./data:/app/data
+      # Optional document scan folder (PDFs/HTML).
+      - ./all-docs:/app/all-docs
+    restart: unless-stopped
+
+  docs:
+    build:
+      context: ./mint-docs
+      dockerfile: Dockerfile
+    image: iso-robot-docs:latest
+    container_name: iso-robot-docs
+    ports:
+      - "${DOCS_PORT:-3005}:3005"
+    environment:
+      PORT: "3005"
+      HOSTNAME: 0.0.0.0
+      MINTLIFY_TELEMETRY_DISABLED: "1"
+    restart: unless-stopped

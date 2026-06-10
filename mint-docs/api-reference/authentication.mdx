@@ -1,0 +1,112 @@
+---
+title: "Authentication"
+description: "Login, registration, and current-user endpoints."
+icon: "key"
+---
+
+Public login and registration plus the authenticated profile lookup. Related
+process narrative: [Stage 01 · Authentication](/flow/01-authentication).
+
+## Login
+
+```http
+POST /auth/login
+```
+
+**Auth:** none (public)
+
+### Request
+
+```json
+{
+  "username": "analyst@demo.local",
+  "password": "Passw0rd!"
+}
+```
+
+### Response `200`
+
+```json
+{
+  "status": "success",
+  "message": "Login successful",
+  "data": {
+    "access_token": "<JWT>",
+    "user_id": "uuid",
+    "client_org_id": "uuid",
+    "client_org_name": "…",
+    "tenant_id": "…",
+    "folders": { "control_documents_folder": "…" },
+    "roles": ["analyst"]
+  }
+}
+```
+
+### Errors
+
+| HTTP | code |
+| --- | --- |
+| 401 | `AUTH_FAILED` |
+| 403 | `UNAUTHORIZED` (disabled account) |
+| 404 | `CLIENT_ORG_NOT_FOUND` |
+
+---
+
+## Register user
+
+```http
+POST /auth/register
+```
+
+**Auth:** none (public)
+
+### Request
+
+```json
+{
+  "email": "new@demo.local",
+  "password": "Passw0rd!",
+  "full_name": "New User",
+  "client_org_id": "uuid",
+  "role": "analyst"
+}
+```
+
+### Response `200`
+
+Standard envelope with the created `UserResponse` in `data`.
+
+| HTTP | code |
+| --- | --- |
+| 409 | `DUPLICATE_RECORD` (email exists) |
+
+---
+
+## Get current user
+
+```http
+GET /auth/me
+```
+
+**Auth:** Bearer
+
+### Response `200`
+
+```json
+{
+  "status": "success",
+  "data": {
+    "id": "uuid",
+    "email": "analyst@demo.local",
+    "full_name": "…",
+    "client_org_id": "uuid",
+    "role": "analyst",
+    "created_at": "…"
+  }
+}
+```
+
+| HTTP | code |
+| --- | --- |
+| 401 | `UNAUTHORIZED` |
+| 401 | `SESSION_INVALID` |

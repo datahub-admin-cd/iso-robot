@@ -1,0 +1,118 @@
+---
+title: "Stage 08 · Risks Portal"
+description: "Publish the analyst-selected, scored risks to the organisation's official risk register — the final, curated output."
+icon: "list-check"
+---
+
+<Note>
+**In plain English:** the analyst reviews everything the system found, picks the
+risks worth keeping, and publishes them to the official register — the final,
+curated list the organisation will act on and report.
+</Note>
+
+<CardGroup cols={2}>
+  <Card title="Why this stage matters" icon="stamp">
+    Human judgment has the final say. The system proposes; the analyst **approves**
+    what becomes the register of record.
+  </Card>
+  <Card title="What you walk away with" icon="folder-check">
+    A published, traceable risk register for the organisation — the deliverable.
+  </Card>
+</CardGroup>
+
+The pipeline's endpoint. After discovery and scoring, an analyst reviews the
+results and selects the risks worth carrying forward. This stage **persists those
+selections** to the organisation's register and lets you read them back.
+
+## What happens
+
+The analyst submits a curated list of risks — each tied to the issue it came from,
+with a title and rating — and the service writes them to the organisation's
+`risks` table. The register can then be listed for reporting.
+
+```mermaid
+flowchart TD
+    A[Scored assessments + candidate risks] --> B[Analyst selects risks]
+    B --> C[POST risks/upload-selected]
+    C --> D[(Org risk register)]
+    D --> E[GET risks/orgId]
+    E --> F([Reporting / board view])
+```
+
+## Inputs & outputs
+
+<table>
+  <thead><tr><th>In</th><th>Out</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>`client_org_id` + `selected_risks[]` (issue_id, title, rating)</td>
+      <td>Created risk records in the org register</td>
+    </tr>
+  </tbody>
+</table>
+
+## Endpoints used
+
+| Method | Path | Auth | Purpose |
+| --- | --- | --- | --- |
+| `POST` | `/risks/upload-selected` | Bearer | Persist analyst-selected risks |
+| `GET` | `/risks/{orgId}` | Bearer | List the org's published risks |
+
+### Upload request
+
+```json
+{
+  "client_org_id": "uuid",
+  "selected_risks": [
+    {
+      "issue_id": "uuid",
+      "risk_title": "Quarterly access review gaps",
+      "risk_rating": "Medium"
+    }
+  ]
+}
+```
+
+### Upload response
+
+```json
+{
+  "status": "success",
+  "data": { "created": ["uuid", "uuid"] }
+}
+```
+
+### List response
+
+```json
+{
+  "status": "success",
+  "data": [
+    {
+      "id": "uuid",
+      "client_org_id": "uuid",
+      "issue_id": "uuid",
+      "risk_title": "…",
+      "risk_rating": "Medium",
+      "created_at": "…"
+    }
+  ]
+}
+```
+
+<Check>
+At this point the full chain is closed: each published risk links to its issue,
+each issue to its controls, and each control to a source document page.
+</Check>
+
+## The journey, end to end
+
+```mermaid
+flowchart LR
+    D[Documents] --> C[Controls] --> I[Issues] --> CR[Candidate Risks] --> RA[Assessments] --> P[Portal Risks]
+```
+
+You started with a folder of policy PDFs and ended with a **scored, traceable,
+board-ready risk register** — every number defensible back to a clause on a page.
+
+Full request/response detail: [API Reference → Risks Portal](/api-reference/risks-portal).

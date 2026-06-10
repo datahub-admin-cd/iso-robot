@@ -1,0 +1,33 @@
+# Git & IDE
+.git
+.gitignore
+.cursor
+.vscode
+*.swp
+*.swo
+
+# Python
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+.venv
+venv
+**/*.egg-info
+
+# Local env (mount at runtime instead)
+.env
+backend/.env
+*.local
+
+# Frontend (not needed for backend image)
+frontend/
+frontend/node_modules
+
+# Large or local-only assets
+**/.DS_Store
+**/Thumbs.db
+
+# Agent / editor artifacts
+agent-transcripts

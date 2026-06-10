@@ -6,7 +6,7 @@ import logging
 import re
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, AsyncIterator, Dict, List, Optional
 
 import aiosqlite
 
@@ -18,6 +18,7 @@ from iso_robot.helpers.text_chunk import chunk_by_chars
 from iso_robot.integrations.document_intelligence import analyze_pdf_bytes_marked
 from iso_robot.repositories.control_repository import ControlRepository
 from iso_robot.repositories.document_repository import DocumentRepository
+from iso_robot.repositories.job_repository import JobRepository
 
 logger = logging.getLogger(__name__)
 
@@ -276,40 +277,9 @@ def _dedupe_key(control_text: str) -> str:
     return " ".join(control_text.lower().split())[:260]
 
 
-async def _layout_or_local_pdf_text(settings: Settings, path: Path, pdf_bytes: bytes) -> str:
-    local = extract_pdf_text_with_page_markers(path)
-    try:
-        di = await analyze_pdf_bytes_marked(settings, pdf_bytes)
-        di_len = len((di or "").strip())
-        local_len = len((local or "").strip())
-        # DI can occasionally return very little text for long PDFs; prefer local text if it
-        # is materially richer so the control extractor sees the full document context.
-        if local_len > max(di_len * 2, di_len + 2000):
-            logger.warning(
-                "DI text seems sparse for %s (di=%d chars, local=%d chars); using local extraction.",
-                path.name,
-                di_len,
-                local_len,
-            )
-            return local
-        return di
-    except Exception as exc:
-        msg = str(exc)
-        # DI can reject very large image-heavy PDFs with InvalidContentLength.
-        # In that case, retry DI in small page batches before giving up.
-        if "InvalidContentLength" in msg or "input image is too large" in msg.lower():
-            logger.warning(
-                "Document Intelligence rejected full PDF (%s); retrying in small page batches: %s",
-                path.name,
-                msg,
-            )
-            by_parts = await _analyze_pdf_in_small_page_batches(settings, path)
-            if by_parts.strip():
-                return by_parts
-        logger.warning("Document Intelligence failed (%s); using local PDF text with page markers.", exc)
-        if local.strip():
-            return local
-        return extract_pdf_text(path)
+def _di_rejected_as_oversized(exc: Exception) -> bool:
+    msg = str(exc)
+    return "InvalidContentLength" in msg or "input image is too large" in msg.lower()
 
 
 def _shift_page_markers(text: str, page_offset: int) -> str:
@@ -318,26 +288,28 @@ def _shift_page_markers(text: str, page_offset: int) -> str:
     return _PAGE_MARKER_RE.sub(lambda m: f"[PAGE {int(m.group(1)) + page_offset}]", text)
 
 
-async def _analyze_pdf_in_small_page_batches(
+async def _iter_di_page_batch_texts(
     settings: Settings,
     path: Path,
-    pages_per_batch: int = 2,
-) -> str:
-    """Best-effort DI fallback for oversized image PDFs: run layout on tiny page batches."""
+    *,
+    pages_per_batch: int,
+) -> AsyncIterator[tuple[int, int, str]]:
+    """Yield (batch_index, total_batches, marked_text) as each DI page batch completes."""
     try:
         from pypdf import PdfReader, PdfWriter
     except Exception:
-        return ""
+        return
     try:
         reader = await asyncio.to_thread(PdfReader, str(path))
     except Exception:
-        return ""
-    total = len(reader.pages)
-    if total <= 0:
-        return ""
-    parts: List[str] = []
-    for start in range(0, total, max(1, pages_per_batch)):
-        end = min(total, start + max(1, pages_per_batch))
+        return
+    total_pages = len(reader.pages)
+    if total_pages <= 0:
+        return
+    step = max(1, pages_per_batch)
+    total_batches = (total_pages + step - 1) // step
+    for batch_idx, start in enumerate(range(0, total_pages, step)):
+        end = min(total_pages, start + step)
         writer = PdfWriter()
         for i in range(start, end):
             writer.add_page(reader.pages[i])
@@ -348,23 +320,189 @@ async def _analyze_pdf_in_small_page_batches(
             seg_text = await analyze_pdf_bytes_marked(settings, seg_bytes)
             seg_text = _shift_page_markers(seg_text or "", page_offset=start).strip()
             if seg_text:
-                parts.append(seg_text)
+                yield batch_idx, total_batches, seg_text
         except Exception as seg_exc:
             logger.warning(
-                "DI batch fallback failed for %s pages %s-%s: %s",
+                "DI batch failed for %s pages %s-%s: %s",
                 path.name,
                 start + 1,
                 end,
                 seg_exc,
             )
+
+
+def _iter_char_chunks(text: str, settings: Settings) -> List[str]:
+    full = text.strip()
+    if not full:
+        return []
+    max_single = settings.control_extraction_max_chars_per_call
+    if len(full) <= max_single:
+        return [full]
+    return chunk_by_chars(
+        full,
+        max_chars=settings.control_extraction_chunk_chars,
+        overlap=settings.control_extraction_chunk_overlap,
+    )
+
+
+async def _iter_document_text_segments(
+    settings: Settings,
+    path: Path,
+    pdf_bytes: bytes,
+) -> AsyncIterator[tuple[int, int, str, str]]:
+    """Yield (segment_index, total_segments, text, source_label) incrementally.
+
+    Large PDFs stream page batches or char chunks so controls can be saved before
+    the full document finishes processing.
+    """
+    local = extract_pdf_text_with_page_markers(path, max_pages=None)
+    local_len = len((local or "").strip())
+    pages_per_batch = max(1, settings.control_extraction_di_pages_per_batch)
+
+    try:
+        di = await analyze_pdf_bytes_marked(settings, pdf_bytes)
+        di_len = len((di or "").strip())
+        if local_len > max(di_len * 2, di_len + 2000):
+            logger.info(
+                "Using local PDF text for %s (local=%d chars, di=%d chars); streaming chunks.",
+                path.name,
+                local_len,
+                di_len,
+            )
+            chunks = _iter_char_chunks(local, settings)
+            total = len(chunks)
+            for i, ch in enumerate(chunks):
+                yield i, total, ch, "local_pdf"
+            return
+        if di.strip():
+            chunks = _iter_char_chunks(di, settings)
+            total = len(chunks)
+            for i, ch in enumerate(chunks):
+                yield i, total, ch, "document_intelligence"
+            return
+    except Exception as exc:
+        if _di_rejected_as_oversized(exc):
+            if local_len >= settings.control_extraction_min_local_chars:
+                logger.info(
+                    "DI rejected full PDF (%s); using local text (%d chars) in streaming chunks.",
+                    path.name,
+                    local_len,
+                )
+                chunks = _iter_char_chunks(local, settings)
+                total = len(chunks)
+                for i, ch in enumerate(chunks):
+                    yield i, total, ch, "local_pdf"
+                return
+            logger.warning(
+                "DI rejected full PDF (%s); streaming DI in %s-page batches: %s",
+                path.name,
+                pages_per_batch,
+                exc,
+            )
+            batch_count = 0
+            async for batch_idx, total_batches, seg_text in _iter_di_page_batch_texts(
+                settings, path, pages_per_batch=pages_per_batch
+            ):
+                batch_count += 1
+                yield batch_idx, total_batches, seg_text, "document_intelligence_batch"
+            if batch_count:
+                return
+        else:
+            logger.warning("Document Intelligence failed (%s); falling back to local text.", exc)
+
+    if local.strip():
+        chunks = _iter_char_chunks(local, settings)
+        total = len(chunks)
+        for i, ch in enumerate(chunks):
+            yield i, total, ch, "local_pdf"
+        return
+
+    plain = extract_pdf_text(path, max_pages=None)
+    if plain.strip():
+        chunks = _iter_char_chunks(plain, settings)
+        total = len(chunks)
+        for i, ch in enumerate(chunks):
+            yield i, total, ch, "local_pdf_plain"
+
+
+async def _persist_controls_from_segment(
+    settings: Settings,
+    *,
+    label: str,
+    text: str,
+    segment_index: int,
+    total_segments: int,
+    document_id: str,
+    client_org_id: Optional[str],
+    ctrl_repo: ControlRepository,
+    seen_keys: set[str],
+) -> int:
+    part = await _controls_from_chunk_with_fallback(
+        settings, label, text, segment_index, total_segments
+    )
+    batch: List[Dict[str, Any]] = []
+    for c in part:
+        ct = (c.get("control_text") or "").strip()
+        if not ct:
             continue
-    return "\n\n".join(parts).strip()
+        key = _dedupe_key(ct)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        batch.append(
+            {
+                "id": str(uuid.uuid4()),
+                "document_id": document_id,
+                "client_org_id": client_org_id,
+                "control_text": ct,
+                "section_ref": str(c["section_ref"]) if c.get("section_ref") else None,
+                "framework": str(c["framework"]) if c.get("framework") else None,
+                "source_page": c.get("source_page"),
+            }
+        )
+    if batch:
+        await ctrl_repo.insert_many(batch)
+    return len(batch)
+
+
+async def _report_extract_progress(
+    jobs: Optional[JobRepository],
+    job_id: Optional[str],
+    *,
+    document_id: str,
+    document_name: str,
+    segment_index: int,
+    total_segments: int,
+    source: str,
+    controls_total: int,
+    segment_controls: int,
+) -> None:
+    if jobs is None or not job_id:
+        return
+    await jobs.merge_payload(
+        job_id,
+        {
+            "progress": {
+                "document_id": document_id,
+                "document_name": document_name,
+                "segment": segment_index + 1,
+                "total_segments": total_segments,
+                "source": source,
+                "controls_created": controls_total,
+                "last_segment_controls": segment_controls,
+            }
+        },
+    )
 
 
 async def extract_controls_for_document(
     settings: Settings,
     conn: aiosqlite.Connection,
     document_id: str,
+    client_org_id: Optional[str] = None,
+    *,
+    job_id: Optional[str] = None,
+    jobs: Optional[JobRepository] = None,
 ) -> int:
     doc_repo = DocumentRepository(conn)
     ctrl_repo = ControlRepository(conn)
@@ -380,70 +518,49 @@ async def extract_controls_for_document(
     await ctrl_repo.delete_for_document(document_id)
 
     pdf_bytes = await asyncio.to_thread(path.read_bytes)
-    layout_text = await _layout_or_local_pdf_text(settings, path, pdf_bytes)
-    full = layout_text.strip()
-    if not full:
-        logger.info("No text extracted for document %s", document_id)
-        return 0
-
-    max_single = settings.control_extraction_max_chars_per_call
-    chunk_sz = settings.control_extraction_chunk_chars
-    overlap = settings.control_extraction_chunk_overlap
-
-    if len(full) <= max_single:
-        chunks_list = [full]
-        logger.info(
-            "Controls extraction: single LLM pass for whole PDF (%d chars) — %s",
-            len(full),
-            path.name,
-        )
-    else:
-        chunks_list = chunk_by_chars(full, max_chars=chunk_sz, overlap=overlap)
-        logger.info(
-            "Controls extraction: %d chunks (max %d chars each), total %d chars — %s",
-            len(chunks_list),
-            chunk_sz,
-            len(full),
-            path.name,
-        )
-
-    total_chunks = len(chunks_list)
     label = f"{row.get('filename') or path.name} ({document_id})"
     seen_keys: set[str] = set()
     running_total = 0
+    segments_seen = 0
 
-    for i, ch in enumerate(chunks_list):
-        part = await _controls_from_chunk_with_fallback(settings, label, ch, i, total_chunks)
-        batch: List[Dict[str, Any]] = []
-        for c in part:
-            ct = (c.get("control_text") or "").strip()
-            if not ct:
-                continue
-            key = _dedupe_key(ct)
-            if key in seen_keys:
-                continue
-            seen_keys.add(key)
-            batch.append(
-                {
-                    "id": str(uuid.uuid4()),
-                    "document_id": document_id,
-                    "control_text": ct,
-                    "section_ref": str(c["section_ref"]) if c.get("section_ref") else None,
-                    "framework": str(c["framework"]) if c.get("framework") else None,
-                    "source_page": c.get("source_page"),
-                }
-            )
-        if batch:
-            await ctrl_repo.insert_many(batch)
-            running_total += len(batch)
-            logger.info(
-                "Controls chunk %s/%s committed %s rows (running total %s) — %s",
-                i + 1,
-                total_chunks,
-                len(batch),
-                running_total,
-                path.name,
-            )
+    async for seg_idx, total_segs, text, source in _iter_document_text_segments(settings, path, pdf_bytes):
+        segments_seen += 1
+        added = await _persist_controls_from_segment(
+            settings,
+            label=label,
+            text=text,
+            segment_index=seg_idx,
+            total_segments=total_segs,
+            document_id=document_id,
+            client_org_id=client_org_id,
+            ctrl_repo=ctrl_repo,
+            seen_keys=seen_keys,
+        )
+        running_total += added
+        logger.info(
+            "Controls segment %s/%s (%s) committed %s rows (running total %s) — %s",
+            seg_idx + 1,
+            total_segs,
+            source,
+            added,
+            running_total,
+            path.name,
+        )
+        await _report_extract_progress(
+            jobs,
+            job_id,
+            document_id=document_id,
+            document_name=path.name,
+            segment_index=seg_idx,
+            total_segments=total_segs,
+            source=source,
+            controls_total=running_total,
+            segment_controls=added,
+        )
+
+    if segments_seen == 0:
+        logger.info("No text extracted for document %s", document_id)
+        return 0
 
     logger.info(
         "Controls extraction finished document=%s rows=%s path=%s",
@@ -458,18 +575,40 @@ async def run_extract_controls_job(
     settings: Settings,
     conn: aiosqlite.Connection,
     payload: dict[str, Any],
+    *,
+    job_id: Optional[str] = None,
 ) -> None:
     raw_ids = payload.get("document_ids")
     doc_repo = DocumentRepository(conn)
+    jobs = JobRepository(conn) if job_id else None
     if isinstance(raw_ids, list) and raw_ids:
         doc_ids = [str(x) for x in raw_ids]
     else:
         rows = await doc_repo.list_all(limit=500, offset=0)
         doc_ids = [str(r["id"]) for r in rows if str(r.get("path", "")).lower().endswith(".pdf")]
 
-    for doc_id in doc_ids:
+    cid = payload.get("client_org_id")
+    for doc_idx, doc_id in enumerate(doc_ids):
+        if jobs and job_id:
+            await jobs.merge_payload(
+                job_id,
+                {
+                    "progress": {
+                        "documents_total": len(doc_ids),
+                        "document_index": doc_idx + 1,
+                        "current_document_id": doc_id,
+                    }
+                },
+            )
         try:
-            await extract_controls_for_document(settings, conn, doc_id)
+            await extract_controls_for_document(
+                settings,
+                conn,
+                doc_id,
+                client_org_id=cid,
+                job_id=job_id,
+                jobs=jobs,
+            )
         except Exception:
             logger.exception("Extract failed for document %s", doc_id)
             if not settings.use_llm_fallback:

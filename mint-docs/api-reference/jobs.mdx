@@ -1,0 +1,69 @@
+---
+title: "Jobs"
+description: "The shared background-job endpoint used to poll progress across every long-running stage."
+icon: "gears"
+---
+
+Every long-running stage — extraction, classification, discovery, scoring — is
+driven through these endpoints. The pattern is explained in
+[Background Jobs](/process/background-jobs).
+
+## Poll job status
+
+```http
+GET /jobs/{jobId}
+```
+
+**Auth:** Bearer
+
+Repeat until `status` is `completed` or `failed`.
+
+### Response `200`
+
+```json
+{
+  "id": "uuid",
+  "type": "extract_controls",
+  "status": "pending | running | completed | failed",
+  "payload": { "progress": {} },
+  "error": null,
+  "created_at": "…",
+  "updated_at": "…"
+}
+```
+
+| HTTP | code |
+| --- | --- |
+| 404 | `not_found` |
+
+### Status values
+
+| Status | Meaning |
+| --- | --- |
+| `pending` | Created, not yet picked up |
+| `running` | Worker is processing |
+| `completed` | Finished successfully |
+| `failed` | Errored — see the `error` field |
+
+---
+
+## List recent jobs
+
+```http
+GET /jobs?limit=20
+```
+
+**Auth:** Bearer
+
+Returns recent jobs with their statuses — handy for a dashboard view of all
+in-flight and finished work.
+
+### Job types
+
+| Type | Started by |
+| --- | --- |
+| `extract_controls` | `POST /control-documents/extract/{orgId}` |
+| `issues_from_controls` | `POST /issues/from-controls/{orgId}` |
+| `classify_issues` | `POST /issues/classify` (or chained after issues) |
+| `risk_discovery` | `POST /risk-discovery/run` |
+| `score_risks` | `POST /risk-scoring/run` |

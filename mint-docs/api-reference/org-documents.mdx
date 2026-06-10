@@ -1,0 +1,141 @@
+---
+title: "Organisation & Documents"
+description: "Upload and list control documents, read counts, and manage the organisation's business demography."
+icon: "folder-open"
+---
+
+Endpoints for onboarding an organisation's source material. Related process
+narrative: [Stage 02 · Organisation & Documents](/flow/02-org-documents).
+
+## Upload control document
+
+```http
+POST /control-documents/upload
+```
+
+**Auth:** Bearer · **Body:** `multipart/form-data`
+
+| Field | Type | Example |
+| --- | --- | --- |
+| `client_org_id` | text | `686f6c71-…` |
+| `document_type` | text | `policy` |
+| `document_category` | text | `ISO27001` |
+| `file` | file | `policy.pdf` |
+
+### Response `200`
+
+Standard envelope with the new `ControlDocumentResponse` in `data`.
+
+| HTTP | code |
+| --- | --- |
+| 400 | `FILE_UPLOAD_FAILED` |
+| 404 | `CLIENT_ORG_NOT_FOUND` |
+
+---
+
+## List control documents
+
+```http
+GET /control-documents/{orgId}
+```
+
+**Auth:** Bearer
+
+### Response `200`
+
+```json
+{
+  "status": "success",
+  "data": {
+    "documents": [
+      {
+        "id": "uuid",
+        "client_org_id": "uuid",
+        "filename": "policy.pdf",
+        "document_path": "…",
+        "document_type": "policy",
+        "processing_status": "pending",
+        "created_at": "…"
+      }
+    ]
+  }
+}
+```
+
+| HTTP | code |
+| --- | --- |
+| 404 | `CLIENT_ORG_NOT_FOUND` |
+
+---
+
+## Control document stats
+
+```http
+GET /control-documents/stats/{orgId}
+```
+
+**Auth:** Bearer
+
+### Response `200`
+
+```json
+{
+  "status": "success",
+  "data": { "client_org_id": "uuid", "documents": 3, "controls": 47 }
+}
+```
+
+---
+
+## List organisations
+
+```http
+GET /orgs
+```
+
+**Auth:** Bearer
+
+### Response `200`
+
+Standard envelope: `{ "organisations": [OrgResponse] }`.
+
+---
+
+## Update business demography
+
+```http
+POST /business-demography/update
+```
+
+**Auth:** Bearer
+
+### Request
+
+```json
+{
+  "client_org_id": "uuid",
+  "business_demography": { "industry": "Oil & Gas" }
+}
+```
+
+### Response `200`
+
+Standard envelope with `demography_record_id`.
+
+---
+
+## Get business demography
+
+```http
+GET /business-demography/{orgId}
+```
+
+**Auth:** Bearer
+
+### Response `200`
+
+Standard envelope with the `DemographyResponse`.
+
+| HTTP | code |
+| --- | --- |
+| 404 | `validation_error` (not set) |

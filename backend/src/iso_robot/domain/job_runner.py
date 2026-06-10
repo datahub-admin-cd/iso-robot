@@ -12,6 +12,7 @@ from iso_robot.domain.discover_risks import run_risk_discovery
 from iso_robot.domain.extract_controls import run_extract_controls_job
 from iso_robot.domain.issues_from_controls import run_issues_from_controls_job
 from iso_robot.domain.job_service import create_job
+from iso_robot.domain.score_risks import score_risks_job
 from iso_robot.repositories.job_repository import JobRepository
 
 logger = logging.getLogger(__name__)
@@ -29,12 +30,21 @@ async def execute_job(job_id: str, job_type: str, payload: dict[str, Any]) -> No
             await jobs.update_status(job_id, status="running", error=None)
 
             if job_type == "extract_controls":
-                await run_extract_controls_job(settings, conn, payload)
+                await run_extract_controls_job(settings, conn, payload, job_id=job_id)
 
             elif job_type == "classify_issues":
                 raw: Optional[list[Any]] = payload.get("issue_ids")
                 ids = [str(x) for x in raw] if isinstance(raw, list) else None
                 await classify_issues_job(settings, conn, ids)
+
+            elif job_type == "score_risks":
+                raw = payload.get("issue_ids")
+                ids = [str(x) for x in raw] if isinstance(raw, list) else None
+                ctrls = payload.get("controls")
+                ctrls = [str(x) for x in ctrls] if isinstance(ctrls, list) else None
+                org_id = payload.get("client_org_id")
+                org_id = str(org_id) if org_id else None
+                await score_risks_job(settings, conn, ids, ctrls, client_org_id=org_id)
 
             elif job_type in ("risk_discovery", "discover_risks"):
                 await run_risk_discovery(settings, conn)

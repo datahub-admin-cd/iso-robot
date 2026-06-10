@@ -97,6 +97,22 @@ class JobRepository:
         )
         await self._conn.commit()
 
+    async def merge_payload(self, job_id: str, updates: dict[str, Any]) -> None:
+        """Shallow-merge keys into the job payload (e.g. progress while running)."""
+        row = await self.get_by_id(job_id)
+        if row is None:
+            return
+        payload = dict(row.get("payload") or {})
+        payload.update(updates)
+        now = _now_iso()
+        await self._conn.execute(
+            """
+            UPDATE jobs SET payload_json = ?, updated_at = ? WHERE id = ?
+            """,
+            (dumps_json(payload), now, job_id),
+        )
+        await self._conn.commit()
+
 
 def _row_to_job(row: dict[str, Any]) -> dict[str, Any]:
     payload_raw = row.get("payload_json") or "{}"

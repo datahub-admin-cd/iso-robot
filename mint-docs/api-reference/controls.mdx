@@ -1,0 +1,92 @@
+---
+title: "Controls"
+description: "Start control extraction and read the extracted controls."
+icon: "clipboard-check"
+---
+
+Extraction is a background job; the list endpoint reads results as they land.
+Related process narrative: [Stage 03 · Extract Controls](/flow/03-extract-controls).
+
+## Start control extraction
+
+```http
+POST /control-documents/extract/{orgId}
+```
+
+**Auth:** Bearer · **Job type:** `extract_controls`
+
+Extracts controls from all of the organisation's PDFs. Returns immediately; poll
+the job and read `/controls` while it runs.
+
+### Request
+
+```json
+{}
+```
+
+### Response `200`
+
+```json
+{
+  "status": "accepted",
+  "data": {
+    "job_id": "uuid",
+    "documents_queued": 2,
+    "folder": "…",
+    "processing_status": "in_progress"
+  }
+}
+```
+
+| HTTP | code |
+| --- | --- |
+| 400 | `validation_error` (no documents) |
+| 404 | `CLIENT_ORG_NOT_FOUND` |
+
+---
+
+## List controls
+
+```http
+GET /controls?client_org_id={orgId}&limit=500
+```
+
+**Auth:** Bearer · **Returns:** bare JSON array
+
+### Query parameters
+
+| Param | Required | Notes |
+| --- | --- | --- |
+| `client_org_id` | yes | Scope to the organisation |
+| `document_id` | no | Filter to one document |
+| `limit` | no | Page size |
+| `offset` | no | Page offset |
+
+### Response `200`
+
+```json
+[
+  {
+    "id": "uuid",
+    "document_id": "uuid",
+    "client_org_id": "uuid",
+    "control_text": "Access to production systems must be reviewed quarterly.",
+    "section_ref": "A.9.2.5",
+    "framework": "ISO 27001",
+    "source_page": 14,
+    "created_at": "…"
+  }
+]
+```
+
+<Tip>
+Re-run this endpoint during the extract job — the array grows as the worker commits
+controls incrementally.
+</Tip>
+
+---
+
+## Poll the extraction job
+
+See [Jobs → Poll job status](/api-reference/jobs#poll-job-status). Repeat
+`GET /jobs/{jobId}` until `status` is `completed` or `failed`.

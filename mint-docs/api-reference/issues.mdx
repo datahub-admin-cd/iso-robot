@@ -1,0 +1,143 @@
+---
+title: "Issues"
+description: "Generate issues from controls, classify them, and read issues and classifications."
+icon: "triangle-exclamation"
+---
+
+Issue synthesis and classification are background jobs. Related process narrative:
+[Stage 04 · Issues](/flow/04-issues).
+
+## Generate issues from controls
+
+```http
+POST /issues/from-controls/{orgId}
+```
+
+**Auth:** Bearer · **Job type:** `issues_from_controls`
+
+Synthesises issues from the org's controls. With `classify_after: true`, spawns a
+chained `classify_issues` job once issues exist.
+
+### Request
+
+```json
+{
+  "document_id": "uuid",
+  "replace_existing": true,
+  "classify_after": true,
+  "sector_hint": null,
+  "region_hint": null
+}
+```
+
+### Response `200`
+
+A `JobResponse` (`id`, `type`, `status`, …).
+
+---
+
+## Classify issues
+
+```http
+POST /issues/classify
+```
+
+**Auth:** Bearer · **Job type:** `classify_issues`
+
+Runs PESTEL / SWOT / TVRA classification. Omit `issue_ids` to classify all
+unclassified issues.
+
+### Request
+
+```json
+{ "issue_ids": ["uuid"] }
+```
+
+### Response `200`
+
+A `JobResponse`.
+
+---
+
+## List issues
+
+```http
+GET /issues?client_org_id={orgId}&include_classification=true&limit=500
+```
+
+**Auth:** Bearer · **Returns:** bare JSON array
+
+### Query parameters
+
+| Param | Notes |
+| --- | --- |
+| `client_org_id` | Scope to the organisation |
+| `include_classification` | Embed each issue's classification when `true` |
+| `limit` / `offset` | Paging |
+
+### Response `200`
+
+```json
+[
+  {
+    "id": "uuid",
+    "title": "Quarterly access review gaps",
+    "body": "…",
+    "client_org_id": "uuid",
+    "issue_scope": "internal",
+    "origin": "from_controls",
+    "control_ids": ["uuid"]
+  }
+]
+```
+
+---
+
+## Get issue by id
+
+```http
+GET /issues/{issueId}
+```
+
+**Auth:** Bearer
+
+Single issue. `404 not_found` if missing.
+
+---
+
+## Get issue classification
+
+```http
+GET /issues/{issueId}/classification
+```
+
+**Auth:** Bearer
+
+### Response `200`
+
+```json
+{
+  "issue_id": "uuid",
+  "classification": { "labels": [], "pestel": {} },
+  "model_version": "…",
+  "created_at": "…"
+}
+```
+
+`404 not_found` if the issue has no classification yet.
+
+---
+
+## Issue stats for org
+
+```http
+GET /issues/stats/{orgId}
+```
+
+**Auth:** Bearer
+
+### Response `200`
+
+```json
+{ "status": "success", "data": { "client_org_id": "uuid", "issues": 24, "documents": 3 } }
+```

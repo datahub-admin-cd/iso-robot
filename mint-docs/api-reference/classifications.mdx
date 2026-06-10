@@ -1,0 +1,75 @@
+---
+title: "Classifications"
+description: "Aggregated PESTEL / SWOT / TVRA chart data and the global dashboard summary."
+icon: "chart-pie"
+---
+
+Synchronous read endpoints for analytics. Related process narrative:
+[Stage 05 · Classifications](/flow/05-classifications).
+
+## PESTEL / SWOT / TVRA aggregate
+
+```http
+GET /classifications/aggregate?issue_id={issueId}&industry=Logistics & Supply Chain&region=GCC
+```
+
+**Auth:** Bearer
+
+### Query parameters
+
+| Param | Notes |
+| --- | --- |
+| `issue_id` | Optional — focus a single issue |
+| `industry` | Display label |
+| `region` | Display label |
+
+### Response `200`
+
+```json
+{
+  "focused_issue": { "id": "…", "title": "…", "has_classification": true },
+  "counts": { "pestel": 14, "swot": 20, "tvra": 8, "geo_global": 6 },
+  "summary": {
+    "sources": 12, "classified": 12, "signals": 40,
+    "llm": 10, "heuristic": 2, "industry": "…", "region": "…"
+  },
+  "agents": [],
+  "pestel": {
+    "Political": [], "Economic": [], "Social": [],
+    "Technological": [], "Environmental": [], "Legal": []
+  },
+  "swot": { "strengths": [], "weaknesses": [], "opportunities": [], "threats": [] },
+  "tvra": [ { "type": "threat", "likelihood": "high", "impact": "extreme" } ],
+  "geo_global": { "geopolitical": [], "enforcement": [], "best_practice": [], "global_risk": [] }
+}
+```
+
+<Warning>
+Run after the `classify_issues` job completes — otherwise there is nothing to
+aggregate.
+</Warning>
+
+---
+
+## Dashboard summary
+
+```http
+GET /summary
+```
+
+**Auth:** Bearer
+
+Global database counts across the platform.
+
+### Response `200`
+
+```json
+{
+  "documents": 3,
+  "controls": 47,
+  "issues": 24,
+  "candidate_risks": 18,
+  "risk_library": 81,
+  "jobs_running": 1
+}
+```

@@ -1,0 +1,2821 @@
+{
+  "info": {
+    "_postman_id": "c5f74daa-904f-4817-9aaf-a1e7dbd344db",
+    "name": "ISO-Robot - API Verification",
+    "description": "# ISO Robot API v1\n\n**Base URL:** `{{baseUrl}}` → must be `http://localhost:8000/api/v1`\n\n## Quick start\n1. Run **01 Auth → Login (Analyst)**\n2. Run folders **02 → 08** in order\n3. While jobs run, re-hit **09 Fetch Latest Data** to see DB rows grow\n4. Use **Poll job** requests until `status` = `completed`\n\n## End-to-end flow\n```mermaid\nflowchart TD\n    A[Login] --> B[Upload / list org documents]\n    B --> C[Extract controls - JOB]\n    C --> D[GET controls by orgId]\n    D --> E[Issues from controls - JOB]\n    E --> F[Classify issues - JOB]\n    F --> G[PESTEL / SWOT / TVRA aggregate]\n    G --> H[Risk discovery - JOB]\n    H --> I[Risk scoring - JOB]\n    I --> J[GET risk assessment]\n```\n\n## Authentication\n| Route | Auth |\n|-------|------|\n| `POST /auth/login`, `POST /auth/register`, `GET /health` | **None** |\n| Everything else | `Authorization: Bearer {{token}}` |\n\nLogin saves `token` + `clientOrgId` to collection variables.\n\n## Error format (all endpoints)\n```json\n{ \"detail\": \"Human message\", \"code\": \"ERROR_CODE\" }\n```\n\n| HTTP | code | Meaning |\n|------|------|---------|\n| 401 | UNAUTHORIZED | Missing/invalid Bearer header |\n| 401 | SESSION_INVALID | Expired or bad JWT |\n| 401 | AUTH_FAILED | Wrong username/password |\n| 403 | FORBIDDEN | Org mismatch or not admin |\n| 404 | not_found | Resource missing |\n| 404 | CLIENT_ORG_NOT_FOUND | Bad org id |\n| 409 | DUPLICATE_RECORD | Slug/email taken |\n| 422 | validation_error | Bad request body |\n\n## Job system\nLong work runs in **background jobs**. Pattern:\n\n1. **Start** → POST returns `{ \"id\", \"type\", \"status\": \"pending\", ... }`\n2. **Poll** → `GET /jobs/{jobId}` until `completed` or `failed`\n3. **Fetch data** → GET list endpoints (controls, issues) — rows appear while job runs\n\n| Job type | Started by | What it does |\n|----------|------------|--------------|\n| `extract_controls` | `/control-documents/extract/{orgId}` | Azure DI + LLM → `controls` table |\n| `issues_from_controls` | `/issues/from-controls` | LLM synthesizes issues from controls |\n| `classify_issues` | `/issues/classify` or auto after step above | LLM/heuristic → `issue_classifications` |\n| `risk_discovery` | `/risk-discovery/run` | BM25 + LLM → `candidate_risks` |\n| `score_risks` | `/risk-scoring/run` | LLM + matrix → `risk_assessments` |\n\nJob status values: `pending` → `running` → `completed` | `failed` (see `error` field)\n",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "25305867"
+  },
+  "item": [
+    {
+      "name": "00 Setup",
+      "item": [
+        {
+          "name": "Health (root)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{rootUrl}}/health",
+              "host": [
+                "{{rootUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            },
+            "description": "## Response 200\n`{ \"status\": \"ok\" }` — no auth."
+          },
+          "response": []
+        },
+        {
+          "name": "Health (API v1)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "health"
+              ]
+            },
+            "description": "## Response 200\n```json\n{ \"status\": \"ok\" }\n```\nNo auth required."
+          },
+          "response": []
+        }
+      ],
+      "description": "Public health checks before login."
+    },
+    {
+      "name": "01 Auth",
+      "item": [
+        {
+          "name": "Login (Analyst — QOC)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const d = (pm.response.json().data || pm.response.json());",
+                  "pm.collectionVariables.set('token', d.access_token);",
+                  "if (d.client_org_id) pm.collectionVariables.set('clientOrgId', d.client_org_id);"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"username\": \"new@demo.local\",\n    \"password\": \"Passw0rd!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "## Purpose\nAuthenticate analyst user. **Run first.** Public — no Bearer token.\n\n## Request\n```json\n{ \"username\": \"email\", \"password\": \"...\" }\n```\n\n## Response 200\n```json\n{\n  \"status\": \"success\",\n  \"message\": \"Login successful\",\n  \"data\": {\n    \"access_token\": \"<JWT>\",\n    \"user_id\": \"uuid\",\n    \"client_org_id\": \"uuid\",\n    \"client_org_name\": \"...\",\n    \"tenant_id\": \"...\",\n    \"folders\": { \"control_documents_folder\": \"...\", ... },\n    \"roles\": [\"analyst\"]\n  }\n}\n```\n\n## Other responses\n| Status | code |\n|--------|------|\n| 401 | AUTH_FAILED |\n| 403 | UNAUTHORIZED (disabled account) |\n| 404 | CLIENT_ORG_NOT_FOUND |\n\n## Flow\nSaves `token` + `clientOrgId` to collection variables."
+          },
+          "response": []
+        },
+        {
+          "name": "Login (Admin)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const d = (pm.response.json().data || pm.response.json());",
+                  "pm.collectionVariables.set('token', d.access_token);",
+                  "if (d.client_org_id) pm.collectionVariables.set('clientOrgId', d.client_org_id);"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"username\":\"admin@catalytics.local\",\"password\":\"AdminPWD123!\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{stageURL}}/auth/login",
+              "host": [
+                "{{stageURL}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "## Purpose\nAdmin login for org creation and cross-org ops.\n\nSame request/response shape as Analyst login.\n\n## Other responses\n401 AUTH_FAILED · 403 disabled · 404 org not found"
+          },
+          "response": []
+        },
+        {
+          "name": "Get current user",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "me"
+              ]
+            },
+            "description": "## Purpose\nReturn logged-in user profile from JWT.\n\n## Response 200\n```json\n{\n  \"status\": \"success\",\n  \"data\": { \"id\", \"email\", \"full_name\", \"client_org_id\", \"role\", \"created_at\" }\n}\n```\n401 UNAUTHORIZED · 401 SESSION_INVALID"
+          },
+          "response": []
+        },
+        {
+          "name": "Register user",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"new@demo.local\",\n    \"password\": \"Passw0rd!\",\n    \"full_name\": \"New\",\n    \"client_org_id\": \"{{clientOrgId}}\",\n    \"role\": \"analyst\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            },
+            "description": "## Purpose\nCreate user (demo/admin). Public.\n\n## Response 200\nApiResponse with UserResponse in `data`.\n409 DUPLICATE_RECORD if email exists."
+          },
+          "response": []
+        }
+      ],
+      "description": "**Step 1.** Login is public. Saves `token` + `clientOrgId`. All later folders need Bearer token."
+    },
+    {
+      "name": "02 Org & Control Documents",
+      "item": [
+        {
+          "name": "Upload Documents (Admin Specific Internal)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJmMjhiYWFiZi03ZDk4LTQ0MmEtYTIwMi04YTUyMDZjZDc2NWIiLCJvcmciOiI2ODZmNmM3MS03N2YzLTQ1ZmMtODEyYi1kNmE2YzA5ZTc2YjkiLCJyb2xlIjoiYWRtaW4iLCJpYXQiOjE3ODA4OTE2MzEsImV4cCI6MTc4MDg5MzQzMX0.rWPJbWueFjdb65BhDt9TFULN8OQciEUZw6UdGPB9BKI"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "type": "text",
+                  "key": "client_org_id",
+                  "value": "686f6c71-77f3-45fc-812b-d6a6c09e76b9"
+                },
+                {
+                  "type": "text",
+                  "key": "document_type",
+                  "value": "policy"
+                },
+                {
+                  "type": "text",
+                  "key": "document_category",
+                  "value": "ISO27001"
+                },
+                {
+                  "type": "file",
+                  "key": "file",
+                  "src": "/Users/devils/Downloads/FINAL GSDR 2023-Digital -110923_1.pdf"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/control-documents/upload",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "control-documents",
+                "upload"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List control documents",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer YOUR_TOKEN"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/control-documents/{{clientOrgId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "control-documents",
+                "{{clientOrgId}}"
+              ]
+            },
+            "description": "## Purpose\nList PDFs uploaded for this org (metadata + paths).\n\n## Response 200\n```json\n{\n  \"status\": \"success\",\n  \"data\": {\n    \"documents\": [\n      { \"id\", \"client_org_id\", \"filename\", \"document_path\", \"document_type\", \"processing_status\", \"created_at\" }\n    ]\n  }\n}\n```\n404 CLIENT_ORG_NOT_FOUND"
+          },
+          "response": []
+        },
+        {
+          "name": "Upload control document",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "client_org_id",
+                  "value": "{{clientOrgId}}",
+                  "type": "text"
+                },
+                {
+                  "key": "document_type",
+                  "value": "policy",
+                  "type": "text"
+                },
+                {
+                  "key": "file",
+                  "type": "file",
+                  "value": null
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/control-documents/upload",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "control-documents",
+                "upload"
+              ]
+            },
+            "description": "## Purpose\nMultipart upload of PDF/DOCX/XLSX/TXT to org folder. Supports **multiple files in one request** — add several form fields all named `file` (same `document_type` / `document_category` apply to each).\n\n## Form fields\n`client_org_id`, `document_type`, `document_category`, `file` (repeat for multiple files)\n\n## Response 200\nSingle file: ApiResponse with ControlDocumentResponse in `data`.\nMultiple files: `data.documents` array + `data.uploaded_count`; partial failures in `errors`."
+          },
+          "response": []
+        },
+        {
+          "name": "Control document stats",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/control-documents/stats/{{clientOrgId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "control-documents",
+                "stats",
+                "{{clientOrgId}}"
+              ]
+            },
+            "description": "## Purpose\nQuick counts — re-run while extract job runs.\n\n## Response 200\n```json\n{\n  \"status\": \"success\",\n  \"data\": { \"client_org_id\": \"...\", \"documents\": 3, \"controls\": 47 }\n}\n```"
+          },
+          "response": []
+        },
+        {
+          "name": "List organisations",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/orgs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "orgs"
+              ]
+            },
+            "description": "## Response 200\nApiResponse: `{ organisations: [OrgResponse] }`"
+          },
+          "response": []
+        },
+        {
+          "name": "Update demography",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"client_org_id\": \"{{clientOrgId}}\",\n    \"business_demography\": {\n        \"industry\": \"Oil & Gas\"\n    }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/business-demography/update",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-demography",
+                "update"
+              ]
+            },
+            "description": "## Purpose\nUpdate org business profile (API 3).\n\n## Response 200\nApiResponse with demography_record_id."
+          },
+          "response": []
+        },
+        {
+          "name": "Get demography",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/business-demography/{{clientOrgId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "business-demography",
+                "{{clientOrgId}}"
+              ]
+            },
+            "description": "## Response 200\nApiResponse with DemographyResponse.\n404 VALIDATION_ERROR if not set."
+          },
+          "response": []
+        }
+      ],
+      "description": "**Step 2.** Upload/list PDFs for the org before extraction."
+    },
+    {
+      "name": "03 Extract Controls",
+      "item": [
+        {
+          "name": "Start control extraction",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const b=pm.response.json(); const id=b.id||(b.data&&b.data.job_id); if(id) pm.collectionVariables.set('jobId',id);"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/control-documents/extract/{{clientOrgId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "control-documents",
+                "extract",
+                "{{clientOrgId}}"
+              ]
+            },
+            "description": "## Purpose\nExtract controls from all org PDFs.\n\n### Job behavior\n- Returns immediately with `status: pending`\n- Worker runs in background via FastAPI BackgroundTasks\n- Poll **`GET /jobs/{{jobId}}`** until done\n- Re-fetch list endpoints in **09 Fetch Latest Data** while running\n\n## Job type\n`extract_controls`\n\n## Response 200\n```json\n{\n  \"status\": \"accepted\",\n  \"data\": { \"job_id\": \"uuid\", \"documents_queued\": 2, \"folder\": \"...\", \"processing_status\": \"in_progress\" }\n}\n```\n400 VALIDATION_ERROR (no docs) · 404 CLIENT_ORG_NOT_FOUND\n\n## Then\nPoll job → **List controls** (09 or 03)"
+          },
+          "response": []
+        },
+        {
+          "name": "Poll job status",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "console.log('status:', pm.response.json().status);"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/jobs/{{jobId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "jobs",
+                "{{jobId}}"
+              ]
+            },
+            "description": "## Purpose\nCheck background job progress.\n\n## Response 200\n```json\n{\n  \"id\": \"uuid\",\n  \"type\": \"extract_controls\",\n  \"status\": \"pending|running|completed|failed\",\n  \"payload\": {},\n  \"error\": null,\n  \"created_at\": \"...\",\n  \"updated_at\": \"...\"\n}\n```\n404 not_found\n\nRepeat until `completed` or `failed`."
+          },
+          "response": []
+        },
+        {
+          "name": "List controls (org)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const a=pm.response.json(); if(Array.isArray(a)&&a[0]&&a[0].document_id) pm.collectionVariables.set('documentId',a[0].document_id);"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/controls?client_org_id={{clientOrgId}}&limit=500",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "controls"
+              ],
+              "query": [
+                {
+                  "key": "client_org_id",
+                  "value": "{{clientOrgId}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "500"
+                }
+              ]
+            },
+            "description": "## Purpose\n**Fetch latest controls** for org — re-run anytime; list grows during extract job.\n\n## Query\n`client_org_id`, `document_id` (optional), `limit`, `offset`\n\n## Response 200\nArray of:\n```json\n{ \"id\", \"document_id\", \"client_org_id\", \"control_text\", \"section_ref\", \"framework\", \"source_page\", \"created_at\" }\n```"
+          },
+          "response": []
+        }
+      ],
+      "description": "**Step 3.** Start extract job → poll → list controls.\n\n```mermaid\nsequenceDiagram\n  Client->>API: POST extract/{orgId}\n  API-->>Client: job_id\n  loop until completed\n    Client->>API: GET /jobs/{id}\n    Client->>API: GET /controls?client_org_id=\n  end\n```"
+    },
+    {
+      "name": "04 Issues",
+      "item": [
+        {
+          "name": "Generate issues from controls",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const b=pm.response.json(); const id=b.id||(b.data&&b.data.job_id); if(id) pm.collectionVariables.set('jobId',id);"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"replace_existing\": true,\n    \"classify_after\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/issues/from-controls/686f6c71-77f3-45fc-812b-d6a6c09e76b9",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "issues",
+                "from-controls",
+                "686f6c71-77f3-45fc-812b-d6a6c09e76b9"
+              ]
+            },
+            "description": "## Purpose\nLLM synthesizes issues from extracted controls.\n\n### Job behavior\n- Returns immediately with `status: pending`\n- Worker runs in background via FastAPI BackgroundTasks\n- Poll **`GET /jobs/{{jobId}}`** until done\n- Re-fetch list endpoints in **09 Fetch Latest Data** while running\n\n## Job type\n`issues_from_controls`\n\n## Request\n```json\n{\n  \"document_id\": \"uuid\",\n  \"replace_existing\": true,\n  \"classify_after\": true,\n  \"sector_hint\": null,\n  \"region_hint\": null\n}\n```\n\nIf `classify_after: true`, spawns separate `classify_issues` job.\n\n## Response 200\nJobResponse"
+          },
+          "response": []
+        },
+        {
+          "name": "Poll job status",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "console.log('status:', pm.response.json().status);"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/jobs/{{jobId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "jobs",
+                "{{jobId}}"
+              ]
+            },
+            "description": "## Purpose\nCheck background job progress.\n\n## Response 200\n```json\n{\n  \"id\": \"uuid\",\n  \"type\": \"extract_controls\",\n  \"status\": \"pending|running|completed|failed\",\n  \"payload\": {},\n  \"error\": null,\n  \"created_at\": \"...\",\n  \"updated_at\": \"...\"\n}\n```\n404 not_found\n\nRepeat until `completed` or `failed`."
+          },
+          "response": []
+        },
+        {
+          "name": "List issues (org)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const a=pm.response.json(); if(Array.isArray(a)&&a[0]) pm.collectionVariables.set('issueId',a[0].id);"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/issues?client_org_id={{clientOrgId}}&include_classification=true&limit=500",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "issues"
+              ],
+              "query": [
+                {
+                  "key": "client_org_id",
+                  "value": "{{clientOrgId}}"
+                },
+                {
+                  "key": "include_classification",
+                  "value": "true"
+                },
+                {
+                  "key": "limit",
+                  "value": "500"
+                }
+              ]
+            },
+            "description": "## Purpose\nFetch latest issues — re-run while classify job runs.\n\n## Response 200\nArray of IssueListItem with optional embedded `classification`.\n\nFields: `id`, `title`, `body`, `client_org_id`, `issue_scope`, `origin`, `control_ids`, ..."
+          },
+          "response": []
+        },
+        {
+          "name": "Get issue by ID",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/issues/{{issueId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "issues",
+                "{{issueId}}"
+              ]
+            },
+            "description": "## Response 200\nSingle IssueListItem.\n404 not_found"
+          },
+          "response": []
+        },
+        {
+          "name": "Classify issues",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const b=pm.response.json(); const id=b.id||(b.data&&b.data.job_id); if(id) pm.collectionVariables.set('jobId',id);"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"issue_ids\": [\n        \"{{issueId}}\"\n    ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/issues/classify",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "issues",
+                "classify"
+              ]
+            },
+            "description": "## Purpose\nRun LLM/heuristic classification → feeds PESTEL charts.\n\n### Job behavior\n- Returns immediately with `status: pending`\n- Worker runs in background via FastAPI BackgroundTasks\n- Poll **`GET /jobs/{{jobId}}`** until done\n- Re-fetch list endpoints in **09 Fetch Latest Data** while running\n\n## Job type\n`classify_issues`\n\n## Request\n`issue_ids` optional — omit to classify all unclassified.\n\n## Response 200\nJobResponse"
+          },
+          "response": []
+        },
+        {
+          "name": "Poll classify job",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "console.log('status:', pm.response.json().status);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/jobs/{{jobId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "jobs",
+                "{{jobId}}"
+              ]
+            },
+            "description": "## Purpose\nCheck background job progress.\n\n## Response 200\n```json\n{\n  \"id\": \"uuid\",\n  \"type\": \"extract_controls\",\n  \"status\": \"pending|running|completed|failed\",\n  \"payload\": {},\n  \"error\": null,\n  \"created_at\": \"...\",\n  \"updated_at\": \"...\"\n}\n```\n404 not_found\n\nRepeat until `completed` or `failed`."
+          },
+          "response": []
+        },
+        {
+          "name": "Get issue classification",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/issues/{{issueId}}/classification",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "issues",
+                "{{issueId}}",
+                "classification"
+              ]
+            },
+            "description": "## Response 200\n```json\n{\n  \"issue_id\": \"...\",\n  \"classification\": { \"labels\": [...], \"pestel\": ... },\n  \"model_version\": \"...\",\n  \"created_at\": \"...\"\n}\n```\n404 not_found (issue or no classification yet)"
+          },
+          "response": []
+        },
+        {
+          "name": "Issue stats for org",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/issues/stats/{{clientOrgId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "issues",
+                "stats",
+                "{{clientOrgId}}"
+              ]
+            },
+            "description": "## Response 200\n```json\n{ \"status\": \"success\", \"data\": { \"client_org_id\", \"issues\", \"documents\" } }\n```"
+          },
+          "response": []
+        }
+      ],
+      "description": "**Step 4.** Issues from controls → classify → list.\n\n`classify_after:true` auto-spawns classify job."
+    },
+    {
+      "name": "05 Charts (PESTEL / SWOT / TVRA)",
+      "item": [
+        {
+          "name": "PESTEL / SWOT / TVRA aggregate",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/classifications/aggregate?issue_id={{issueId}}&industry=Logistics %26 Supply Chain&region=GCC",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "classifications",
+                "aggregate"
+              ],
+              "query": [
+                {
+                  "key": "issue_id",
+                  "value": "{{issueId}}"
+                },
+                {
+                  "key": "industry",
+                  "value": "Logistics %26 Supply Chain"
+                },
+                {
+                  "key": "region",
+                  "value": "GCC"
+                }
+              ]
+            },
+            "description": "## Purpose\nChart data for Classifications UI — PESTEL, SWOT, TVRA, Geo/Global.\n\n## Query\n`issue_id` (optional — focus one issue), `industry`, `region` (display labels)\n\n## Response 200\n```json\n{\n  \"focused_issue\": { \"id\", \"title\", \"has_classification\" },\n  \"counts\": { \"pestel\", \"swot\", \"tvra\", \"geo_global\" },\n  \"summary\": { \"sources\", \"classified\", \"signals\", \"llm\", \"heuristic\", \"industry\", \"region\" },\n  \"agents\": [...],\n  \"pestel\": { \"Political\": [...], \"Economic\": [...], ... },\n  \"swot\": { \"strengths\", \"weaknesses\", \"opportunities\", \"threats\" },\n  \"tvra\": [ { \"type\": \"threat|vulnerability\", \"likelihood\", \"impact\", ... } ],\n  \"geo_global\": { \"geopolitical\", \"enforcement\", \"best_practice\", \"global_risk\" }\n}\n```\n\nRun after classify job completes."
+          },
+          "response": []
+        },
+        {
+          "name": "Dashboard summary",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "summary"
+              ]
+            },
+            "description": "## Response 200\n```json\n{ \"documents\", \"controls\", \"issues\", \"candidate_risks\", \"risk_library\", \"jobs_running\" }\n```\nGlobal DB counts."
+          },
+          "response": []
+        }
+      ],
+      "description": "**Step 5.** Chart/analytics data. Requires classified issues.\n\nPESTEL = Political/Economic/Social/Technological/Environmental/Legal"
+    },
+    {
+      "name": "06 Risk Discovery",
+      "item": [
+        {
+          "name": "Seed risk library",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/risk-library/seed-from-poc",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "risk-library",
+                "seed-from-poc"
+              ]
+            },
+            "description": "## Purpose\nOne-time load from POC xlsx → `risk_library` table.\n\n## Response 200\n```json\n{ \"entries\": 81, \"csv_path\": \"...\" }\n```\nSync — not a job."
+          },
+          "response": []
+        },
+        {
+          "name": "List risk library",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/risk-library?limit=50",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "risk-library"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "50"
+                }
+              ]
+            },
+            "description": "## Response 200\nArray of RiskLibraryListItem."
+          },
+          "response": []
+        },
+        {
+          "name": "Run risk discovery",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b=pm.response.json(); const id=b.id||(b.data&&b.data.job_id); if(id) pm.collectionVariables.set('jobId',id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/risk-discovery/run",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "risk-discovery",
+                "run"
+              ]
+            },
+            "description": "## Purpose\nBM25 + LLM: match issues → risk library → candidate_risks.\n\n### Job behavior\n- Returns immediately with `status: pending`\n- Worker runs in background via FastAPI BackgroundTasks\n- Poll **`GET /jobs/{{jobId}}`** until done\n- Re-fetch list endpoints in **09 Fetch Latest Data** while running\n\n## Job type\n`risk_discovery`\n\n## Response 200\nJobResponse"
+          },
+          "response": []
+        },
+        {
+          "name": "Poll job status",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "console.log('status:', pm.response.json().status);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/jobs/{{jobId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "jobs",
+                "{{jobId}}"
+              ]
+            },
+            "description": "## Purpose\nCheck background job progress.\n\n## Response 200\n```json\n{\n  \"id\": \"uuid\",\n  \"type\": \"extract_controls\",\n  \"status\": \"pending|running|completed|failed\",\n  \"payload\": {},\n  \"error\": null,\n  \"created_at\": \"...\",\n  \"updated_at\": \"...\"\n}\n```\n404 not_found\n\nRepeat until `completed` or `failed`."
+          },
+          "response": []
+        },
+        {
+          "name": "List candidate risks",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/candidate-risks?limit=100",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "candidate-risks"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "100"
+                }
+              ]
+            },
+            "description": "## Response 200\nArray of CandidateRiskListItem: `id`, `title`, `match_status`, `library_risk_id`, `bm25_score`, `issue_ids`, ..."
+          },
+          "response": []
+        },
+        {
+          "name": "Discovery export",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/discovery-export",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "discovery-export"
+              ]
+            },
+            "description": "## Response 200\nDiscoveryExportResponse: documents_summary, controls, issues, candidate_risks, risk_library_matches, risk_library."
+          },
+          "response": []
+        }
+      ],
+      "description": "**Step 6.** Seed library (once) → discovery job → candidate risks."
+    },
+    {
+      "name": "07 Risk Scoring",
+      "item": [
+        {
+          "name": "Run risk scoring",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b=pm.response.json(); const id=b.id||(b.data&&b.data.job_id); if(id) pm.collectionVariables.set('jobId',id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"issue_ids\":[\"{{issueId}}\"]}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/risk-scoring/run",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "risk-scoring",
+                "run"
+              ]
+            },
+            "description": "## Purpose\nLLM judgment + deterministic matrix → inherent/residual risk.\n\n### Job behavior\n- Returns immediately with `status: pending`\n- Worker runs in background via FastAPI BackgroundTasks\n- Poll **`GET /jobs/{{jobId}}`** until done\n- Re-fetch list endpoints in **09 Fetch Latest Data** while running\n\n## Job type\n`score_risks`\n\n## Request\n```json\n{ \"issue_ids\": [\"uuid\"], \"controls\": [\"optional control text\"] }\n```\n\n## Response 200\nJobResponse\n403 FORBIDDEN if issue not in user's org"
+          },
+          "response": []
+        },
+        {
+          "name": "Poll job status",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "console.log('status:', pm.response.json().status);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/jobs/{{jobId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "jobs",
+                "{{jobId}}"
+              ]
+            },
+            "description": "## Purpose\nCheck background job progress.\n\n## Response 200\n```json\n{\n  \"id\": \"uuid\",\n  \"type\": \"extract_controls\",\n  \"status\": \"pending|running|completed|failed\",\n  \"payload\": {},\n  \"error\": null,\n  \"created_at\": \"...\",\n  \"updated_at\": \"...\"\n}\n```\n404 not_found\n\nRepeat until `completed` or `failed`."
+          },
+          "response": []
+        },
+        {
+          "name": "Get risk assessment",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/issues/{{issueId}}/risk-assessment",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "issues",
+                "{{issueId}}",
+                "risk-assessment"
+              ]
+            },
+            "description": "## Purpose\nLatest scored assessment for issue (after score_risks job).\n\n## Response 200\n```json\n{\n  \"issue_id\": \"...\",\n  \"model_version\": \"...\",\n  \"created_at\": \"...\",\n  \"assessment\": {\n    \"likelihood\", \"consequence\", \"velocity\", \"risk_type\",\n    \"inherent_risk\", \"residual_risk\", \"risk_response\",\n    \"controls\": [{ \"control\", \"effectiveness\" }]\n  }\n}\n```\n404 not_found"
+          },
+          "response": []
+        }
+      ],
+      "description": "**Step 7.** Score risks job → read assessment.\n\nRequires Azure OpenAI configured."
+    },
+    {
+      "name": "08 Risks Portal",
+      "item": [
+        {
+          "name": "Upload selected risks",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"client_org_id\":\"{{clientOrgId}}\",\"selected_risks\":[{\"issue_id\":\"{{issueId}}\",\"risk_title\":\"Test\",\"risk_rating\":\"Medium\"}]}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/risks/upload-selected",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "risks",
+                "upload-selected"
+              ]
+            },
+            "description": "## Purpose\nPortal: persist user-selected risks to `risks` table.\n\n## Response 200\nApiResponse with created risk ids."
+          },
+          "response": []
+        },
+        {
+          "name": "List risks for org",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/risks/{{clientOrgId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "risks",
+                "{{clientOrgId}}"
+              ]
+            },
+            "description": "## Response 200\nApiResponse with array of RiskResponse in `data`."
+          },
+          "response": []
+        }
+      ],
+      "description": "**Step 8.** User-selected risk upload to portal."
+    },
+    {
+      "name": "09 Fetch Latest Data (re-run while jobs run)",
+      "item": [
+        {
+          "name": "Controls",
+          "item": [
+            {
+              "name": "List controls (org)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const a=pm.response.json(); if(Array.isArray(a)&&a[0]&&a[0].document_id) pm.collectionVariables.set('documentId',a[0].document_id);"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/controls?client_org_id={{clientOrgId}}&limit=500",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "controls"
+                  ],
+                  "query": [
+                    {
+                      "key": "client_org_id",
+                      "value": "{{clientOrgId}}"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "500"
+                    }
+                  ]
+                },
+                "description": "## Purpose\n**Fetch latest controls** for org — re-run anytime; list grows during extract job.\n\n## Query\n`client_org_id`, `document_id` (optional), `limit`, `offset`\n\n## Response 200\nArray of:\n```json\n{ \"id\", \"document_id\", \"client_org_id\", \"control_text\", \"section_ref\", \"framework\", \"source_page\", \"created_at\" }\n```"
+              },
+              "response": []
+            },
+            {
+              "name": "Controls for one document",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/controls?document_id={{documentId}}&client_org_id={{clientOrgId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "controls"
+                  ],
+                  "query": [
+                    {
+                      "key": "document_id",
+                      "value": "{{documentId}}"
+                    },
+                    {
+                      "key": "client_org_id",
+                      "value": "{{clientOrgId}}"
+                    }
+                  ]
+                },
+                "description": "Same as list controls filtered by `document_id`."
+              },
+              "response": []
+            },
+            {
+              "name": "Control document stats",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/control-documents/stats/{{clientOrgId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "control-documents",
+                    "stats",
+                    "{{clientOrgId}}"
+                  ]
+                },
+                "description": "## Purpose\nQuick counts — re-run while extract job runs.\n\n## Response 200\n```json\n{\n  \"status\": \"success\",\n  \"data\": { \"client_org_id\": \"...\", \"documents\": 3, \"controls\": 47 }\n}\n```"
+              },
+              "response": []
+            }
+          ],
+          "description": "Re-hit during extract job — row count increases."
+        },
+        {
+          "name": "Documents",
+          "item": [
+            {
+              "name": "List control documents",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/control-documents/{{clientOrgId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "control-documents",
+                    "{{clientOrgId}}"
+                  ]
+                },
+                "description": "## Purpose\nList PDFs uploaded for this org (metadata + paths).\n\n## Response 200\n```json\n{\n  \"status\": \"success\",\n  \"data\": {\n    \"documents\": [\n      { \"id\", \"client_org_id\", \"filename\", \"document_path\", \"document_type\", \"processing_status\", \"created_at\" }\n    ]\n  }\n}\n```\n404 CLIENT_ORG_NOT_FOUND"
+              },
+              "response": []
+            },
+            {
+              "name": "Document registry",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/documents?limit=100",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "documents"
+                  ],
+                  "query": [
+                    {
+                      "key": "limit",
+                      "value": "100"
+                    }
+                  ]
+                },
+                "description": "Global scanned PDF registry."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Issues",
+          "item": [
+            {
+              "name": "List issues (org)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const a=pm.response.json(); if(Array.isArray(a)&&a[0]) pm.collectionVariables.set('issueId',a[0].id);"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/issues?client_org_id={{clientOrgId}}&include_classification=true&limit=500",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "issues"
+                  ],
+                  "query": [
+                    {
+                      "key": "client_org_id",
+                      "value": "{{clientOrgId}}"
+                    },
+                    {
+                      "key": "include_classification",
+                      "value": "true"
+                    },
+                    {
+                      "key": "limit",
+                      "value": "500"
+                    }
+                  ]
+                },
+                "description": "## Purpose\nFetch latest issues — re-run while classify job runs.\n\n## Response 200\nArray of IssueListItem with optional embedded `classification`.\n\nFields: `id`, `title`, `body`, `client_org_id`, `issue_scope`, `origin`, `control_ids`, ..."
+              },
+              "response": []
+            },
+            {
+              "name": "Issue stats for org",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/issues/stats/{{clientOrgId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "issues",
+                    "stats",
+                    "{{clientOrgId}}"
+                  ]
+                },
+                "description": "## Response 200\n```json\n{ \"status\": \"success\", \"data\": { \"client_org_id\", \"issues\", \"documents\" } }\n```"
+              },
+              "response": []
+            },
+            {
+              "name": "Get issue by ID",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/issues/{{issueId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "issues",
+                    "{{issueId}}"
+                  ]
+                },
+                "description": "## Response 200\nSingle IssueListItem.\n404 not_found"
+              },
+              "response": []
+            },
+            {
+              "name": "Get issue classification",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/issues/{{issueId}}/classification",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "issues",
+                    "{{issueId}}",
+                    "classification"
+                  ]
+                },
+                "description": "## Response 200\n```json\n{\n  \"issue_id\": \"...\",\n  \"classification\": { \"labels\": [...], \"pestel\": ... },\n  \"model_version\": \"...\",\n  \"created_at\": \"...\"\n}\n```\n404 not_found (issue or no classification yet)"
+              },
+              "response": []
+            },
+            {
+              "name": "Get risk assessment",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/issues/{{issueId}}/risk-assessment",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "issues",
+                    "{{issueId}}",
+                    "risk-assessment"
+                  ]
+                },
+                "description": "## Purpose\nLatest scored assessment for issue (after score_risks job).\n\n## Response 200\n```json\n{\n  \"issue_id\": \"...\",\n  \"model_version\": \"...\",\n  \"created_at\": \"...\",\n  \"assessment\": {\n    \"likelihood\", \"consequence\", \"velocity\", \"risk_type\",\n    \"inherent_risk\", \"residual_risk\", \"risk_response\",\n    \"controls\": [{ \"control\", \"effectiveness\" }]\n  }\n}\n```\n404 not_found"
+              },
+              "response": []
+            }
+          ],
+          "description": "Re-hit during classify/scoring jobs."
+        },
+        {
+          "name": "Jobs & Summary",
+          "item": [
+            {
+              "name": "Poll job status",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "console.log('status:', pm.response.json().status);"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/jobs/{{jobId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "jobs",
+                    "{{jobId}}"
+                  ]
+                },
+                "description": "## Purpose\nCheck background job progress.\n\n## Response 200\n```json\n{\n  \"id\": \"uuid\",\n  \"type\": \"extract_controls\",\n  \"status\": \"pending|running|completed|failed\",\n  \"payload\": {},\n  \"error\": null,\n  \"created_at\": \"...\",\n  \"updated_at\": \"...\"\n}\n```\n404 not_found\n\nRepeat until `completed` or `failed`."
+              },
+              "response": []
+            },
+            {
+              "name": "List recent jobs",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/jobs?limit=20",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "jobs"
+                  ],
+                  "query": [
+                    {
+                      "key": "limit",
+                      "value": "20"
+                    }
+                  ]
+                },
+                "description": "All recent jobs with status."
+              },
+              "response": []
+            },
+            {
+              "name": "Dashboard summary",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/summary",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "summary"
+                  ]
+                },
+                "description": "## Response 200\n```json\n{ \"documents\", \"controls\", \"issues\", \"candidate_risks\", \"risk_library\", \"jobs_running\" }\n```\nGlobal DB counts."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Risk & Charts",
+          "item": [
+            {
+              "name": "List candidate risks",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/candidate-risks?limit=100",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "candidate-risks"
+                  ],
+                  "query": [
+                    {
+                      "key": "limit",
+                      "value": "100"
+                    }
+                  ]
+                },
+                "description": "## Response 200\nArray of CandidateRiskListItem: `id`, `title`, `match_status`, `library_risk_id`, `bm25_score`, `issue_ids`, ..."
+              },
+              "response": []
+            },
+            {
+              "name": "PESTEL / SWOT / TVRA aggregate",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/classifications/aggregate?issue_id={{issueId}}&industry=Logistics %26 Supply Chain&region=GCC",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "classifications",
+                    "aggregate"
+                  ],
+                  "query": [
+                    {
+                      "key": "issue_id",
+                      "value": "{{issueId}}"
+                    },
+                    {
+                      "key": "industry",
+                      "value": "Logistics & Supply Chain"
+                    },
+                    {
+                      "key": "region",
+                      "value": "GCC"
+                    }
+                  ]
+                },
+                "description": "## Purpose\nChart data for Classifications UI — PESTEL, SWOT, TVRA, Geo/Global.\n\n## Query\n`issue_id` (optional — focus one issue), `industry`, `region` (display labels)\n\n## Response 200\n```json\n{\n  \"focused_issue\": { \"id\", \"title\", \"has_classification\" },\n  \"counts\": { \"pestel\", \"swot\", \"tvra\", \"geo_global\" },\n  \"summary\": { \"sources\", \"classified\", \"signals\", \"llm\", \"heuristic\", \"industry\", \"region\" },\n  \"agents\": [...],\n  \"pestel\": { \"Political\": [...], \"Economic\": [...], ... },\n  \"swot\": { \"strengths\", \"weaknesses\", \"opportunities\", \"threats\" },\n  \"tvra\": [ { \"type\": \"threat|vulnerability\", \"likelihood\", \"impact\", ... } ],\n  \"geo_global\": { \"geopolitical\", \"enforcement\", \"best_practice\", \"global_risk\" }\n}\n```\n\nRun after classify job completes."
+              },
+              "response": []
+            }
+          ]
+        }
+      ],
+      "description": "**Read APIs** — poll DB while jobs run (vs poll job = worker status)."
+    },
+    {
+      "name": "Reference",
+      "item": [
+        {
+          "name": "Documents",
+          "item": [
+            {
+              "name": "Scan folder",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json",
+                    "type": "text"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\"folder\":null}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/documents/scan",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "documents",
+                    "scan"
+                  ]
+                },
+                "description": "Register PDFs from disk into documents table.\n\n## Response 200\n`{ scanned, added, updated, skipped, errors }`"
+              },
+              "response": []
+            },
+            {
+              "name": "Get document",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/documents/{{documentId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "documents",
+                    "{{documentId}}"
+                  ]
+                },
+                "description": "Single DocumentResponse. 404 not_found"
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Legacy",
+          "item": [
+            {
+              "name": "Extract controls (legacy)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "const b=pm.response.json(); const id=b.id||(b.data&&b.data.job_id); if(id) pm.collectionVariables.set('jobId',id);"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json",
+                    "type": "text"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\"document_ids\":[\"{{documentId}}\"]}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/controls/extract",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "controls",
+                    "extract"
+                  ]
+                },
+                "description": "Non-org-scoped extract. Job type: extract_controls."
+              },
+              "response": []
+            },
+            {
+              "name": "Seed issues POC",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json",
+                    "type": "text"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/issues/seed-from-poc",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "issues",
+                    "seed-from-poc"
+                  ]
+                },
+                "description": "Load POC workbook issues. Sync."
+              },
+              "response": []
+            },
+            {
+              "name": "Import issues CSV",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "body": {
+                  "mode": "formdata",
+                  "formdata": [
+                    {
+                      "key": "file",
+                      "type": "file",
+                      "value": null
+                    }
+                  ]
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/issues/import-csv",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "issues",
+                    "import-csv"
+                  ]
+                },
+                "description": "Multipart CSV upload."
+              },
+              "response": []
+            }
+          ]
+        },
+        {
+          "name": "Admin",
+          "item": [
+            {
+              "name": "Create organisation",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json",
+                    "type": "text"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\"name\":\"Test\",\"slug\":\"TEST001\",\"industry\":\"Energy\"}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                },
+                "url": {
+                  "raw": "{{baseUrl}}/orgs",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "orgs"
+                  ]
+                },
+                "description": "Admin only. 403 FORBIDDEN for analysts.\n409 DUPLICATE_RECORD if slug taken."
+              },
+              "response": []
+            },
+            {
+              "name": "System status",
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{token}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [
+                  {
+                    "key": "Accept",
+                    "value": "application/json",
+                    "type": "text"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/system/status",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "system",
+                    "status"
+                  ]
+                },
+                "description": "## Response 200\n```json\n{ \"use_llm_fallback\", \"azure_openai_configured\", \"document_intelligence_configured\", \"note\" }\n```"
+              },
+              "response": []
+            }
+          ]
+        }
+      ],
+      "description": "Ad-hoc / legacy endpoints."
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "const path = pm.request.url.getPath();",
+          "const pub = ['/api/v1/auth/login','/api/v1/auth/register','/health','/api/v1/health'];",
+          "if (pub.includes(path)) pm.request.headers.remove('Authorization');"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8000/api/v1"
+    },
+    {
+      "key": "rootUrl",
+      "value": "http://localhost:8000"
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "clientOrgId",
+      "value": ""
+    },
+    {
+      "key": "documentId",
+      "value": ""
+    },
+    {
+      "key": "issueId",
+      "value": ""
+    },
+    {
+      "key": "jobId",
+      "value": ""
+    }
+  ]
+}

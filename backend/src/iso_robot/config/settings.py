@@ -44,6 +44,19 @@ class Settings(BaseSettings):
     # Reasoning models (e.g. o4-mini) reject non-default temperature — leave unset.
     azure_openai_temperature: Optional[float] = Field(default=None)
     log_level: str = "INFO"
+    
+    # ── JWT auth (sliding window) ─────────────────────────────────────────────
+    jwt_secret_key: str = Field(
+        default="dev-only-change-me",
+        description="HMAC secret for signing JWTs. Override in .env.",
+    )
+    jwt_algorithm: str = Field(default="HS256")
+    jwt_idle_minutes: int = Field(
+        default=30,
+        description="Sliding window: token lifetime per request. Each authenticated "
+                    "request issues a fresh token, resetting this idle timeout.",
+    )
+
     database_path: str = Field(
         default_factory=lambda: str(_backend_root() / "data" / "db.sqlite"),
     )
@@ -69,6 +82,14 @@ class Settings(BaseSettings):
     control_extraction_heuristic_on_empty: bool = Field(
         default=False,
         description="If True, run keyword heuristics when the LLM returns no controls. Default False — use LLM + retry only.",
+    )
+    control_extraction_di_pages_per_batch: int = Field(
+        default=2,
+        description="When DI rejects a full PDF, analyze this many pages per DI call (streaming mode saves controls after each batch).",
+    )
+    control_extraction_min_local_chars: int = Field(
+        default=5000,
+        description="Prefer local PDF text over slow DI page-batching when at least this many characters are extractable locally.",
     )
 
     def resolved_database_path(self) -> Path:

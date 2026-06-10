@@ -14,6 +14,7 @@ from iso_robot.repositories.risk_repository import (
     RiskDiscoveryResultRepository,
     RiskLibraryRepository,
 )
+from iso_robot.schemas.api import DiscoveryExportResponse
 from iso_robot.handlers.issues import _issue_list_item_from_row
 
 

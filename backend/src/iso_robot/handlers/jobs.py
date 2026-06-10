@@ -12,7 +12,14 @@ from iso_robot.repositories.job_repository import JobRepository
 from iso_robot.schemas.api import JobCreateRequest, JobResponse
 
 _ASYNC_JOB_TYPES = frozenset(
-    {"extract_controls", "classify_issues", "risk_discovery", "discover_risks", "issues_from_controls"}
+    {
+        "extract_controls",
+        "classify_issues",
+        "risk_discovery",
+        "discover_risks",
+        "issues_from_controls",
+        "score_risks",
+    }
 )
 
 

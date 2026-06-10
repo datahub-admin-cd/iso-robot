@@ -6,12 +6,23 @@ Monorepo for ISO Robot ERM / risk-discovery work: data assets, offline UI protot
 
 See [`backend/README.md`](backend/README.md) for install, `.env`, and `uvicorn` commands.
 
+**From repo root** (uses `.venv` or `venv` if present):
+
+```bash
+source .venv/bin/activate
+./run-api.sh
+```
+
+**Or from `backend/`** (recommended):
+
 ```bash
 cd backend
-source ../venv/bin/activate   # or backend/venv
+source ../.venv/bin/activate   # or ../venv
 export PYTHONPATH=src
 uvicorn iso_robot.main:app --reload --host 0.0.0.0 --port 8000
 ```
+
+If you stay at the repo root without `cd backend`, set `PYTHONPATH=backend/src` (not `src` alone).
 
 API base: `http://127.0.0.1:8000/api/v1` — OpenAPI at `/docs`.
 

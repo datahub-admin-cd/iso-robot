@@ -267,3 +267,32 @@ CREATE TABLE IF NOT EXISTS api_audit_log (
 
 CREATE INDEX IF NOT EXISTS idx_audit_log_org ON api_audit_log(client_org_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_timestamp ON api_audit_log(request_timestamp);
+
+CREATE TABLE IF NOT EXISTS risk_assessments (
+  id TEXT PRIMARY KEY,
+  issue_id TEXT NOT NULL,
+  risk_type TEXT,
+  likelihood TEXT,
+  consequence TEXT,
+  velocity TEXT,
+  inherent_risk TEXT,
+  overall_control_effectiveness TEXT,
+  residual_risk TEXT,
+  risk_response TEXT,
+  assessment_json TEXT NOT NULL,
+  model_version TEXT,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (issue_id) REFERENCES issues(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_risk_assessments_issue ON risk_assessments(issue_id);
+
+CREATE TABLE IF NOT EXISTS issue_controls (
+  issue_id TEXT NOT NULL,
+  control_id TEXT NOT NULL,
+  PRIMARY KEY (issue_id, control_id),
+  FOREIGN KEY (issue_id) REFERENCES issues(id) ON DELETE CASCADE,
+  FOREIGN KEY (control_id) REFERENCES controls(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_issue_controls_issue ON issue_controls(issue_id);

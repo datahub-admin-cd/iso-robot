@@ -15,10 +15,11 @@ from iso_robot.schemas.api import ControlListItem, ExtractControlsRequest, JobRe
 async def list_controls(
     repo: Annotated[ControlRepository, Depends(get_control_repo)],
     document_id: Optional[str] = None,
+    client_org_id: Optional[str] = None,
     limit: int = 500,
     offset: int = 0,
 ) -> list[ControlListItem]:
-    rows = await repo.list_all(limit=limit, offset=offset, document_id=document_id)
+    rows = await repo.list_all(limit=limit, offset=offset, document_id=document_id, client_org_id=client_org_id)
     return [ControlListItem(**row) for row in rows]
 
 

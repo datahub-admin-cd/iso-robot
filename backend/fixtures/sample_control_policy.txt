@@ -1,0 +1,5 @@
+ISO Robot — sample control policy (demo upload)
+
+Control 1: Access to production systems requires MFA and manager approval.
+Control 2: Security patches must be applied within 30 days of release.
+Control 3: All third-party vendors undergo annual risk assessment.

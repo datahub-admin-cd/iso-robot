@@ -1,0 +1,113 @@
+---
+title: "Why ISO Robot"
+description: "The business case — what changes when risk discovery becomes automated, consistent, and traceable."
+icon: "lightbulb"
+---
+
+This page is the "so what." It explains, in business terms, why ISO Robot exists
+and what measurably improves when an organisation adopts it.
+
+## The core idea
+
+> Every enterprise risk should be **traceable to evidence** and **scored by a method
+> you can defend** — not by the instinct of whoever happened to run the assessment.
+
+ISO Robot enforces exactly that. The result is a risk register that survives
+scrutiny from auditors, regulators, and the board.
+
+## What changes for each stakeholder
+
+<Tabs>
+  <Tab title="Risk & compliance lead">
+    - Stop rebuilding the register from scratch each cycle — re-run the pipeline
+      on the latest documents.
+    - Defend every rating with a transparent method and a source-page trail.
+    - Spot coverage gaps: which requirements produced no risks, which risks have
+      weak controls.
+  </Tab>
+  <Tab title="Analyst">
+    - Skip the manual reading and copy-paste. Review and refine instead of transcribe.
+    - Consistent vocabulary and scoring across every issue you touch.
+    - Focus your judgment where it matters — selecting and contextualising risks.
+  </Tab>
+  <Tab title="Executive / board">
+    - A prioritised, rated view of enterprise risk in business language.
+    - Confidence that numbers are repeatable and evidence-backed.
+    - A faster path from "new regulation published" to "risk position understood."
+  </Tab>
+</Tabs>
+
+## Before and after
+
+| Dimension | Manual process | With ISO Robot |
+| --- | --- | --- |
+| Document review | Days–weeks of reading | Automated extraction with page references |
+| Rating consistency | Varies by analyst | Fixed matrices — identical inputs, identical output |
+| Traceability | Hard to reconstruct | Built in: risk → issue → requirement → page |
+| Repeatability | Re-done each cycle | Re-run on updated documents |
+| Auditability | Manual evidence gathering | Evidence is the data model |
+
+## The principle that makes it defensible
+
+ISO Robot deliberately separates **judgment** from **calculation**:
+
+<Columns cols={2}>
+  <Card title="AI provides judgment" icon="robot">
+    Reading the documents and forming qualitative opinions — how likely, how
+    severe, how effective the existing controls are.
+  </Card>
+  <Card title="Fixed rules do the maths" icon="calculator">
+    Inherent risk, residual risk, and the recommended response are computed by
+    published matrices — not invented by the model.
+  </Card>
+</Columns>
+
+<Check>
+Because the rating maths is a transparent matrix rather than an AI output, the same
+judgments **always** produce the same rating — and the policy can be tuned to your
+risk appetite without re-training or re-prompting anything.
+</Check>
+
+## Where the AI helps — and where it doesn't
+
+<AccordionGroup>
+  <Accordion title="What the AI does" icon="circle-check">
+    Reads dense regulatory text, extracts discrete requirements, clusters them into
+    risk themes, classifies them across analytical lenses, and proposes qualitative
+    risk judgments.
+  </Accordion>
+  <Accordion title="What the AI never does" icon="circle-xmark">
+    Decide a final risk rating, the inherent/residual level, or the recommended
+    response. Those are computed deterministically so they are auditable and tunable.
+  </Accordion>
+  <Accordion title="What happens if the AI is unavailable" icon="shield-halved">
+    The pipeline falls back to deterministic heuristics where one exists, so the
+    chain still produces usable output instead of failing outright.
+  </Accordion>
+</AccordionGroup>
+
+## Designed for the real world
+
+<CardGroup cols={2}>
+  <Card title="Multi-tenant by default" icon="building-lock">
+    Every record is scoped to one organisation. One client's data is fully isolated
+    from another's.
+  </Card>
+  <Card title="Resilient to messy inputs" icon="file-shield">
+    Oversized PDFs, scanned layouts, and partial failures are handled gracefully —
+    one bad page never stops the run.
+  </Card>
+  <Card title="Responsive at any scale" icon="bolt">
+    Heavy work runs as background jobs, so the system stays usable while large
+    documents are processed.
+  </Card>
+  <Card title="Tunable to your appetite" icon="sliders">
+    The scoring matrices are policy, not code — adjust them to match how your
+    organisation defines risk.
+  </Card>
+</CardGroup>
+
+<Tip>
+Ready for the walkthrough? Continue to the [End-to-End Flow](/process/end-to-end-flow)
+to see the whole pipeline in one picture.
+</Tip>

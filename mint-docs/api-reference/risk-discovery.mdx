@@ -1,0 +1,106 @@
+---
+title: "Risk Discovery"
+description: "Seed the risk library, run discovery, and read candidate risks."
+icon: "magnifying-glass-chart"
+---
+
+Discovery matches issues to the seeded risk library. Related process narrative:
+[Stage 06 · Risk Discovery](/flow/06-risk-discovery).
+
+## Seed risk library
+
+```http
+POST /risk-library/seed-from-poc
+```
+
+**Auth:** Bearer · **Synchronous** (not a job)
+
+One-time load of the POC catalogue into the `risk_library` table.
+
+### Request
+
+```json
+{}
+```
+
+### Response `200`
+
+```json
+{ "entries": 81, "csv_path": "data/curated/risk_library_seed.csv" }
+```
+
+---
+
+## List risk library
+
+```http
+GET /risk-library?limit=50
+```
+
+**Auth:** Bearer · **Returns:** array of `RiskLibraryListItem`.
+
+---
+
+## Run risk discovery
+
+```http
+POST /risk-discovery/run
+```
+
+**Auth:** Bearer · **Job type:** `risk_discovery`
+
+BM25 + LLM matching of issues to library entries → `candidate_risks`.
+
+### Request
+
+```json
+{}
+```
+
+### Response `200`
+
+A `JobResponse`.
+
+---
+
+## List candidate risks
+
+```http
+GET /candidate-risks?limit=100
+```
+
+**Auth:** Bearer · **Returns:** bare JSON array
+
+### Response `200`
+
+```json
+[
+  {
+    "id": "uuid",
+    "title": "Third-party data processor non-compliance",
+    "match_status": "matched",
+    "library_risk_id": "uuid",
+    "bm25_score": 12.84,
+    "issue_ids": ["uuid"]
+  }
+]
+```
+
+---
+
+## Discovery export
+
+```http
+GET /discovery-export
+```
+
+**Auth:** Bearer
+
+Full JSON bundle: `documents_summary`, `controls`, `issues`, `candidate_risks`,
+`risk_library_matches`, `risk_library`.
+
+---
+
+## Poll the discovery job
+
+See [Jobs → Poll job status](/api-reference/jobs#poll-job-status).

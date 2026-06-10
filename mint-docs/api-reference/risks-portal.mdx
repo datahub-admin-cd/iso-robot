@@ -1,0 +1,67 @@
+---
+title: "Risks Portal"
+description: "Publish analyst-selected risks and list an organisation's register."
+icon: "list-check"
+---
+
+The final stage — persist curated risks. Related process narrative:
+[Stage 08 · Risks Portal](/flow/08-risks-portal).
+
+## Upload selected risks
+
+```http
+POST /risks/upload-selected
+```
+
+**Auth:** Bearer
+
+Persists the analyst's chosen risks to the organisation's `risks` table.
+
+### Request
+
+```json
+{
+  "client_org_id": "uuid",
+  "selected_risks": [
+    {
+      "issue_id": "uuid",
+      "risk_title": "Quarterly access review gaps",
+      "risk_rating": "Medium"
+    }
+  ]
+}
+```
+
+### Response `200`
+
+```json
+{ "status": "success", "data": { "created": ["uuid"] } }
+```
+
+---
+
+## List risks for org
+
+```http
+GET /risks/{orgId}
+```
+
+**Auth:** Bearer
+
+### Response `200`
+
+```json
+{
+  "status": "success",
+  "data": [
+    {
+      "id": "uuid",
+      "client_org_id": "uuid",
+      "issue_id": "uuid",
+      "risk_title": "Quarterly access review gaps",
+      "risk_rating": "Medium",
+      "created_at": "…"
+    }
+  ]
+}
+```

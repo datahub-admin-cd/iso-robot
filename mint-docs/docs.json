@@ -1,0 +1,92 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "ISO Robot",
+  "description": "Process flow, control narrative, and API reference for the ISO Robot enterprise risk-discovery platform.",
+  "colors": {
+    "primary": "#0E7490",
+    "light": "#22D3EE",
+    "dark": "#0E7490"
+  },
+  "favicon": "/favicon.svg",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Process & Flow",
+        "groups": [
+          {
+            "group": "Get Started",
+            "icon": "rocket",
+            "pages": [
+              "introduction",
+              "process/why-iso-robot",
+              "process/architecture",
+              "process/concepts",
+              "process/background-jobs",
+              "process/end-to-end-flow"
+            ]
+          },
+          {
+            "group": "Pipeline Stages",
+            "icon": "diagram-project",
+            "pages": [
+              "flow/01-authentication",
+              "flow/02-org-documents",
+              "flow/03-extract-controls",
+              "flow/04-issues",
+              "flow/05-classifications",
+              "flow/06-risk-discovery",
+              "flow/07-risk-scoring",
+              "flow/08-risks-portal"
+            ]
+          },
+          {
+            "group": "Reference & Help",
+            "icon": "circle-question",
+            "pages": [
+              "process/glossary",
+              "process/faq"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Essentials",
+            "icon": "gear",
+            "pages": [
+              "api-reference/conventions"
+            ]
+          },
+          {
+            "group": "Endpoints",
+            "icon": "code",
+            "pages": [
+              "api-reference/authentication",
+              "api-reference/org-documents",
+              "api-reference/controls",
+              "api-reference/issues",
+              "api-reference/classifications",
+              "api-reference/risk-discovery",
+              "api-reference/risk-scoring",
+              "api-reference/risks-portal",
+              "api-reference/jobs"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "navbar": {
+    "primary": {
+      "type": "button",
+      "label": "End-to-End Flow",
+      "href": "/process/end-to-end-flow"
+    }
+  },
+  "footer": {
+    "socials": {}
+  }
+}

@@ -9,6 +9,7 @@ import aiosqlite
 from iso_robot.config import Settings
 from iso_robot.domain.llm_service import chat_json_object
 from iso_robot.repositories.control_repository import ControlRepository
+from iso_robot.repositories.issue_control_repository import IssueControlRepository
 from iso_robot.repositories.issue_repository import IssueRepository
 
 logger = logging.getLogger(__name__)
@@ -19,7 +20,7 @@ MAX_CONTROL_CHARS = 450
 
 def _system_prompt() -> str:
     return (
-        "You derive enterprise risk monitoring issues from formal control statements extracted from a PDF. "
+        "You derive enterprise risk monitoring issues from formal control statements extracted from PDFs. "
         "Each issue should reflect a plausible sector risk theme (internal operations or external environment) "
         "that those controls are meant to address or expose gaps for. "
         "Return a single JSON object with key 'issues' — an array of objects, each with: "
@@ -107,7 +108,7 @@ def _heuristic_batch(
 
 async def _llm_batch(
     settings: Settings,
-    document_id: str,
+    client_org_id: str,
     batch: List[dict[str, Any]],
     *,
     sector_hint: Optional[str],
@@ -117,14 +118,15 @@ async def _llm_batch(
     lines: List[str] = []
     for c in batch:
         lines.append(
-            f"- id={c['id']} page={c.get('source_page')} ref={c.get('section_ref') or ''}\n"
+            f"- id={c['id']} doc={c.get('document_id')} page={c.get('source_page')} "
+            f"ref={c.get('section_ref') or ''}\n"
             f"  text={_truncate(c.get('control_text'))}"
         )
     user = (
-        f"document_id={document_id}\n"
+        f"client_org_id={client_org_id}\n"
         f"optional_sector_hint={sector_hint or 'null'}\n"
         f"optional_region_hint={region_hint or 'null'}\n\n"
-        "Controls batch:\n"
+        "Controls batch (all documents for this organisation):\n"
         + "\n".join(lines)
         + "\n\nRespond with JSON only: {{\"issues\": [...]}}"
     )
@@ -143,9 +145,9 @@ async def run_issues_from_controls_job(
     conn: aiosqlite.Connection,
     payload: dict[str, Any],
 ) -> dict[str, Any]:
-    document_id = str(payload.get("document_id") or "").strip()
-    if not document_id:
-        raise ValueError("document_id is required")
+    client_org_id = str(payload.get("client_org_id") or "").strip()
+    if not client_org_id:
+        raise ValueError("client_org_id is required")
 
     replace = bool(payload.get("replace_existing", True))
     sector_hint = payload.get("sector_hint")
@@ -155,20 +157,25 @@ async def run_issues_from_controls_job(
 
     ctrl_repo = ControlRepository(conn)
     issue_repo = IssueRepository(conn)
+    issue_ctrl_repo = IssueControlRepository(conn)
 
-    controls = await ctrl_repo.get_by_document(document_id)
+    controls = await ctrl_repo.list_all(limit=10000, offset=0, client_org_id=client_org_id)
     if not controls:
-        return {"created": 0, "document_id": document_id, "message": "no_controls_for_document"}
+        return {
+            "created": 0,
+            "client_org_id": client_org_id,
+            "message": "no_controls_for_org",
+        }
 
     if replace:
-        await issue_repo.delete_derived_from_document(document_id, origin="from_controls")
+        await issue_repo.delete_derived_for_org(client_org_id, origin="from_controls")
 
     created_ids: List[str] = []
     for i in range(0, len(controls), BATCH_SIZE):
         batch = controls[i : i + BATCH_SIZE]
         batch_issues = await _llm_batch(
             settings,
-            document_id,
+            client_org_id,
             batch,
             sector_hint=sector_hint,
             region_hint=region_hint,
@@ -176,10 +183,11 @@ async def run_issues_from_controls_job(
         for iss in batch_issues:
             iid = str(uuid.uuid4())
             rh = iss.get("region_hint") or region_hint
+            control_ids = list(iss.get("control_ids") or [])
             raw_payload = {
                 "origin": "from_controls",
-                "source_document_id": document_id,
-                "control_ids": list(iss.get("control_ids") or []),
+                "client_org_id": client_org_id,
+                "control_ids": control_ids,
                 "scope": iss.get("scope"),
                 "sector": iss.get("sector"),
             }
@@ -190,10 +198,18 @@ async def run_issues_from_controls_job(
                 body=iss.get("body"),
                 region_hint=rh,
                 raw_payload=raw_payload,
+                client_org_id=client_org_id,
             )
+            if control_ids:
+                await issue_ctrl_repo.assign(iid, control_ids)
             created_ids.append(iid)
 
-    return {"created": len(created_ids), "document_id": document_id, "issue_ids": created_ids}
+    return {
+        "created": len(created_ids),
+        "client_org_id": client_org_id,
+        "controls_used": len(controls),
+        "issue_ids": created_ids,
+    }
 
 
 __all__ = ["run_issues_from_controls_job"]

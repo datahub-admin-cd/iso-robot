@@ -1,0 +1,96 @@
+---
+title: "Risk Scoring"
+description: "Run the scoring job and read an issue's inherent / residual risk assessment."
+icon: "gauge-high"
+---
+
+Scoring combines LLM judgment with deterministic matrices. Related process
+narrative: [Stage 07 · Risk Scoring](/flow/07-risk-scoring).
+
+## Run risk scoring
+
+```http
+POST /risk-scoring/run
+```
+
+**Auth:** Bearer · **Job type:** `score_risks`
+
+Scores the listed issues (or all org issues if `issue_ids` is omitted).
+
+### Request
+
+```json
+{
+  "issue_ids": ["uuid"],
+  "controls": ["optional control text"]
+}
+```
+
+### Response `200`
+
+A `JobResponse`.
+
+| HTTP | code |
+| --- | --- |
+| 403 | `FORBIDDEN` (issue not in caller's org) |
+
+<Warning>
+Requires Azure OpenAI to be configured.
+</Warning>
+
+---
+
+## Get risk assessment
+
+```http
+GET /issues/{issueId}/risk-assessment
+```
+
+**Auth:** Bearer
+
+Latest scored assessment for an issue.
+
+### Response `200`
+
+```json
+{
+  "issue_id": "uuid",
+  "model_version": "…",
+  "created_at": "…",
+  "assessment": {
+    "likelihood": "Likely",
+    "consequence": "Major",
+    "velocity": "Fast",
+    "risk_type": "Compliance",
+    "inherent_risk": "High",
+    "overall_control_effectiveness": "Partially Effective",
+    "residual_risk": "High",
+    "risk_response": "Mitigate",
+    "controls": [
+      { "control": "Quarterly access review", "effectiveness": "Partially Effective" }
+    ]
+  }
+}
+```
+
+`404 not_found` if the issue has no assessment yet.
+
+### Allowed values
+
+| Field | Values |
+| --- | --- |
+| `likelihood` | Rare · Unlikely · Possible · Likely · Almost Certain |
+| `consequence` | Insignificant · Minor · Moderate · Major · Severe |
+| `velocity` | Very Slow · Slow · Moderate · Fast · Immediate |
+| `effectiveness` | Effective · Partially Effective · Ineffective · Uncontrolled |
+| `inherent_risk` / `residual_risk` | Low · Medium · High · Extreme |
+| `risk_response` | Accept · Mitigate · Transfer · Avoid |
+
+The matrices that derive `inherent_risk`, `residual_risk`, and `risk_response` are
+documented in [Stage 07 · Risk Scoring](/flow/07-risk-scoring#the-scoring-matrices).
+
+---
+
+## Poll the scoring job
+
+See [Jobs → Poll job status](/api-reference/jobs#poll-job-status).

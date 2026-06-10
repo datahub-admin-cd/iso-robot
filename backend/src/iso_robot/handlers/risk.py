@@ -7,19 +7,48 @@ import aiosqlite
 from fastapi import BackgroundTasks, Depends
 
 from iso_robot.config import Settings
-from iso_robot.deps import get_app_settings, get_db, get_job_repo
+from iso_robot.deps import get_app_settings, get_current_user, get_db, get_job_repo
 from iso_robot.domain.job_runner import execute_job
 from iso_robot.domain.job_service import create_job
 from iso_robot.domain.poc_import import default_poc_path
 from iso_robot.domain.poc_seed import seed_risk_library_catalog
 from iso_robot.errors import APIError
+from iso_robot.repositories.issue_repository import IssueRepository
 from iso_robot.repositories.job_repository import JobRepository
+from iso_robot.repositories.risk_assessment_repository import RiskAssessmentRepository
 from iso_robot.repositories.risk_repository import (
     CandidateRiskRepository,
     RiskDiscoveryResultRepository,
     RiskLibraryRepository,
 )
-from iso_robot.schemas.api import CandidateRiskListItem, JobResponse, RiskLibraryListItem, SeedRiskLibraryResponse
+from iso_robot.schemas.api import (
+    CandidateRiskListItem,
+    JobResponse,
+    RiskAssessmentResponse,
+    RiskLibraryListItem,
+    ScoreRisksRequest,
+    SeedRiskLibraryResponse,
+)
+
+
+async def _require_issue_access(
+    issue_id: str,
+    db: aiosqlite.Connection,
+    current_user: dict,
+) -> dict:
+    row = await IssueRepository(db).get_by_id(issue_id)
+    if row is None:
+        raise APIError("Issue not found", code="not_found", status_code=404)
+    issue_org = row.get("client_org_id")
+    user_org = current_user.get("client_org_id")
+    if (
+        current_user.get("role") != "admin"
+        and issue_org
+        and user_org
+        and issue_org != user_org
+    ):
+        raise APIError("Forbidden", code="FORBIDDEN", status_code=403)
+    return row
 
 
 def _latest_result_by_candidate(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -100,3 +129,43 @@ async def run_risk_discovery(
     row = await create_job(jobs, job_type="risk_discovery", payload={})
     background_tasks.add_task(execute_job, row["id"], "risk_discovery", {})
     return JobResponse(**row)
+
+
+async def run_risk_scoring(
+    background_tasks: BackgroundTasks,
+    jobs: Annotated[JobRepository, Depends(get_job_repo)],
+    db: Annotated[aiosqlite.Connection, Depends(get_db)],
+    current_user: Annotated[dict, Depends(get_current_user)],
+    request: Optional[ScoreRisksRequest] = None,
+) -> JobResponse:
+    payload: dict[str, Any] = {"client_org_id": current_user.get("client_org_id")}
+
+    if request is not None:
+        if request.issue_ids is not None:
+            for iid in request.issue_ids:
+                await _require_issue_access(str(iid), db, current_user)
+            payload["issue_ids"] = request.issue_ids
+        if request.controls is not None:
+            payload["controls"] = request.controls
+
+    row = await create_job(jobs, job_type="score_risks", payload=payload)
+    background_tasks.add_task(execute_job, row["id"], "score_risks", payload)
+    return JobResponse(**row)
+
+
+async def get_issue_risk_assessment(
+    issue_id: str,
+    db: Annotated[aiosqlite.Connection, Depends(get_db)],
+    current_user: Annotated[dict, Depends(get_current_user)],
+) -> RiskAssessmentResponse:
+    await _require_issue_access(issue_id, db, current_user)
+    repo = RiskAssessmentRepository(db)
+    row = await repo.get_latest_for_issue(issue_id)
+    if row is None:
+        raise APIError("No risk assessment for this issue", code="not_found", status_code=404)
+    return RiskAssessmentResponse(
+        issue_id=str(row["issue_id"]),
+        model_version=row.get("model_version"),
+        created_at=str(row["created_at"]),
+        assessment=row.get("assessment") or {},
+    )

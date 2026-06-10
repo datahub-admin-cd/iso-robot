@@ -1,0 +1,95 @@
+---
+title: "Frequently Asked Questions"
+description: "Straight answers to the questions clients and integrators ask most."
+icon: "circle-question"
+---
+
+## About the results
+
+<AccordionGroup>
+  <Accordion title="Can I trust the risk ratings?" icon="shield-check">
+    Yes — and you can verify them. The AI only supplies qualitative judgments
+    (likelihood, consequence, control effectiveness). The actual High / Medium / Low
+    rating is computed by a **fixed, published matrix**, so the same judgments always
+    produce the same rating. See [Risk Scoring](/flow/07-risk-scoring).
+  </Accordion>
+  <Accordion title="Where does a given risk come from?" icon="route">
+    Every risk traces back through the chain: risk → issue → controls → source
+    document page. Nothing is a black box; you can always answer "where did this
+    come from?"
+  </Accordion>
+  <Accordion title="What if the AI gets something wrong?" icon="user-check">
+    Humans have the final say. Stage 08 is an explicit **analyst approval** step —
+    the system proposes, the analyst decides what becomes the register of record.
+  </Accordion>
+  <Accordion title="How consistent is it between runs and analysts?" icon="scale-balanced">
+    The scoring method is deterministic, so it does not drift from analyst to
+    analyst the way manual rating does. Re-running on the same inputs yields the same
+    ratings.
+  </Accordion>
+</AccordionGroup>
+
+## About the inputs
+
+<AccordionGroup>
+  <Accordion title="What documents can I upload?" icon="file-arrow-up">
+    PDF, DOCX, XLSX, and TXT can be stored. **Control extraction targets PDFs** —
+    policies, standards, regulations, and internal procedures all work well.
+  </Accordion>
+  <Accordion title="What if a PDF is huge or scanned awkwardly?" icon="file-shield">
+    The pipeline handles it. Oversized files are processed in page batches, and if
+    the document service struggles, it falls back to local text extraction. One
+    difficult page never stops the run.
+  </Accordion>
+  <Accordion title="Does setting industry and region matter?" icon="location-dot">
+    Yes. The business demography you set in
+    [Stage 02](/flow/02-org-documents) flows downstream as context, producing more
+    relevant issues and better-labelled analysis.
+  </Accordion>
+</AccordionGroup>
+
+## About operating the platform
+
+<AccordionGroup>
+  <Accordion title="Why do some steps make me wait and poll?" icon="hourglass-half">
+    Reading large documents and scoring many risks takes time. Those steps run as
+    [background jobs](/process/background-jobs) so the system stays responsive —
+    you start the job, poll until it's done, and results appear as they're produced.
+  </Accordion>
+  <Accordion title="Can two clients' data ever mix?" icon="building-lock">
+    No. Every record is scoped to a `client_org_id`, and the API rejects cross-org
+    access with `403 FORBIDDEN`.
+  </Accordion>
+  <Accordion title="What order do I run the stages in?" icon="list-ol">
+    Follow the numbering, 01 → 08. The [End-to-End Flow](/process/end-to-end-flow)
+    has the exact run-order checklist.
+  </Accordion>
+  <Accordion title="Can the scoring be tuned to our risk appetite?" icon="sliders">
+    Yes. The inherent/residual matrices are **policy, not hidden code** — they can be
+    adjusted to match how your organisation defines and tolerates risk, without
+    changing how the AI is used.
+  </Accordion>
+</AccordionGroup>
+
+## For integrators
+
+<AccordionGroup>
+  <Accordion title="Where do I start with the API?" icon="code">
+    Read [API Conventions](/api-reference/conventions) for the base URL, auth, and
+    error format, then work through the endpoint pages in pipeline order.
+  </Accordion>
+  <Accordion title="How does authentication work?" icon="key">
+    `POST /auth/login` returns a bearer token and the active `client_org_id`. Send
+    the token on the `Authorization` header for every protected call. See
+    [Authentication](/api-reference/authentication).
+  </Accordion>
+  <Accordion title="How do I know when a job finished?" icon="gears">
+    Poll `GET /jobs/{jobId}` until `status` is `completed` or `failed`. Details on
+    the [Jobs](/api-reference/jobs) page.
+  </Accordion>
+</AccordionGroup>
+
+<Tip>
+Didn't find your question? The [Glossary](/process/glossary) defines every term,
+and each pipeline stage page has a "Why this stage matters" summary up top.
+</Tip>

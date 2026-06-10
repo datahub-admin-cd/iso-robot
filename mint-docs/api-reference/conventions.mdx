@@ -1,0 +1,99 @@
+---
+title: "API Conventions"
+description: "Base URL, authentication, response envelope, error format, and the background-job pattern shared by every endpoint."
+icon: "book-open"
+---
+
+The ISO Robot API is a single versioned REST surface. This page covers the rules
+that apply everywhere; the following pages document each endpoint group in
+pipeline order, up to the **Risks Portal**.
+
+## Base URL
+
+Deployed API (VM):
+
+```text
+http://157.20.190.175:8000/api/v1
+```
+
+The root health check sits one level above the versioned prefix:
+
+```text
+http://157.20.190.175:8000/health
+```
+
+<Info>
+Interactive OpenAPI docs on the same host: `http://157.20.190.175:8000/docs`
+</Info>
+
+## Authentication
+
+All endpoints require a bearer token **except** the public ones below.
+
+```http
+Authorization: Bearer <access_token>
+```
+
+| Route | Auth |
+| --- | --- |
+| `POST /auth/login`, `POST /auth/register`, `GET /health` | **None** |
+| Everything else | Bearer token required |
+
+Obtain the token from [`POST /auth/login`](/api-reference/authentication). The
+login response also returns the `client_org_id` that scopes most resources.
+
+## Response envelope
+
+Most write/detail endpoints wrap their payload in a standard envelope:
+
+```json
+{
+  "status": "success",
+  "message": "…",
+  "data": { }
+}
+```
+
+List endpoints frequently return a **bare JSON array** (for example `/controls`,
+`/issues`, `/candidate-risks`). Each endpoint page notes which shape it uses.
+
+## Error format
+
+Every error uses the same body:
+
+```json
+{ "detail": "Human-readable message", "code": "ERROR_CODE" }
+```
+
+| HTTP | code | Meaning |
+| --- | --- | --- |
+| 401 | `UNAUTHORIZED` | Missing or invalid bearer header |
+| 401 | `SESSION_INVALID` | Expired or malformed JWT |
+| 401 | `AUTH_FAILED` | Wrong username / password |
+| 403 | `FORBIDDEN` | Org mismatch or insufficient role |
+| 404 | `not_found` | Resource missing |
+| 404 | `CLIENT_ORG_NOT_FOUND` | Unknown organisation id |
+| 409 | `DUPLICATE_RECORD` | Slug / email already taken |
+| 422 | `validation_error` | Invalid request body |
+
+## Background jobs
+
+Long-running endpoints return a job immediately and do the work asynchronously.
+The pattern — start, poll `GET /jobs/{jobId}`, then read the data — is identical
+across extraction, classification, discovery, and scoring. It is documented once
+in [Background Jobs](/process/background-jobs) and referenced from each job
+endpoint. The jobs endpoints themselves are on the [Jobs](/api-reference/jobs)
+page.
+
+## Collection variables
+
+The API verification suite uses these variables; they map directly to values you
+capture during a run:
+
+| Variable | Source |
+| --- | --- |
+| `token` | `access_token` from login |
+| `clientOrgId` | `client_org_id` from login |
+| `documentId` | a control document id |
+| `issueId` | an issue id |
+| `jobId` | a job id returned by any start endpoint |

@@ -1,0 +1,131 @@
+---
+title: "End-to-End Flow"
+description: "The complete journey from login to a published risk register, as a single picture and an ordered checklist."
+icon: "route"
+---
+
+This page is the map. It shows the full pipeline — all eight stages — in one
+diagram, then summarises what goes in and what comes out at each stage. Use it as
+the index to the per-stage pages.
+
+<Note>
+**Read this first.** If you only read one page, read this one. It connects every
+stage so the detailed pages make sense in context.
+</Note>
+
+## The complete pipeline
+
+```mermaid
+flowchart TD
+    A[01 · Login] --> B[02 · Upload / list org documents]
+    B --> C[03 · Extract controls — JOB]
+    C --> D[GET controls by orgId]
+    D --> E[04 · Issues from controls — JOB]
+    E --> F[04 · Classify issues — JOB]
+    F --> G[05 · PESTEL / SWOT / TVRA aggregate]
+    G --> H[06 · Risk discovery — JOB]
+    H --> I[07 · Risk scoring — JOB]
+    I --> J[07 · GET risk assessment]
+    J --> K[08 · Publish selected risks to portal]
+
+    classDef job fill:#0E7490,stroke:#22D3EE,color:#fff;
+    class C,E,F,H,I job;
+```
+
+<Note>
+Boxes in teal are **background jobs** — start, poll, then read the result. See
+[Background Jobs](/process/background-jobs).
+</Note>
+
+## Stage-by-stage summary
+
+<table>
+  <thead>
+    <tr><th>Stage</th><th>You provide</th><th>You get back</th><th>Mechanism</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>[01 Authentication](/flow/01-authentication)</td>
+      <td>Username & password</td>
+      <td>Bearer token + active org id</td>
+      <td>Sync</td>
+    </tr>
+    <tr>
+      <td>[02 Org & Documents](/flow/02-org-documents)</td>
+      <td>Org profile + control documents</td>
+      <td>Stored documents & demography</td>
+      <td>Sync</td>
+    </tr>
+    <tr>
+      <td>[03 Extract Controls](/flow/03-extract-controls)</td>
+      <td>Trigger on the org's PDFs</td>
+      <td>Page-referenced controls</td>
+      <td>Job</td>
+    </tr>
+    <tr>
+      <td>[04 Issues](/flow/04-issues)</td>
+      <td>Trigger on the org's controls</td>
+      <td>Risk issues (+ optional classification)</td>
+      <td>Job (+ chained job)</td>
+    </tr>
+    <tr>
+      <td>[05 Classifications](/flow/05-classifications)</td>
+      <td>An org with classified issues</td>
+      <td>PESTEL / SWOT / TVRA chart data</td>
+      <td>Sync read</td>
+    </tr>
+    <tr>
+      <td>[06 Risk Discovery](/flow/06-risk-discovery)</td>
+      <td>Seeded library + issues</td>
+      <td>Candidate risks matched to library</td>
+      <td>Job</td>
+    </tr>
+    <tr>
+      <td>[07 Risk Scoring](/flow/07-risk-scoring)</td>
+      <td>Issue ids</td>
+      <td>Inherent & residual risk assessments</td>
+      <td>Job</td>
+    </tr>
+    <tr>
+      <td>[08 Risks Portal](/flow/08-risks-portal)</td>
+      <td>Analyst-selected risks</td>
+      <td>Published risk register</td>
+      <td>Sync</td>
+    </tr>
+  </tbody>
+</table>
+
+## The "happy path" run order
+
+<Steps>
+  <Step title="Log in">
+    `POST /auth/login` → save the `access_token` and `client_org_id`.
+  </Step>
+  <Step title="Confirm documents exist">
+    `GET /control-documents/{orgId}` → ensure at least one PDF is uploaded.
+  </Step>
+  <Step title="Extract controls">
+    `POST /control-documents/extract/{orgId}` → poll the job → `GET /controls`.
+  </Step>
+  <Step title="Generate issues">
+    `POST /issues/from-controls/{orgId}` with `classify_after: true` → poll → `GET /issues`.
+  </Step>
+  <Step title="Review classification charts">
+    `GET /classifications/aggregate` once the classify job completes.
+  </Step>
+  <Step title="Seed library & run discovery">
+    `POST /risk-library/seed-from-poc` (once) → `POST /risk-discovery/run` → poll → `GET /candidate-risks`.
+  </Step>
+  <Step title="Score risks">
+    `POST /risk-scoring/run` → poll → `GET /issues/{id}/risk-assessment`.
+  </Step>
+  <Step title="Publish">
+    `POST /risks/upload-selected` → `GET /risks/{orgId}`.
+  </Step>
+</Steps>
+
+<Tip>
+While any job runs, re-hit the matching read endpoint to watch rows accumulate.
+The relationship between "poll the job" and "fetch the data" is explained in
+[Background Jobs](/process/background-jobs).
+</Tip>

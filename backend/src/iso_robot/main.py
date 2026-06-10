@@ -11,8 +11,11 @@ from fastapi.responses import JSONResponse
 
 from iso_robot.config import get_settings
 from iso_robot.errors import APIError
+from iso_robot.handlers import auth
 from iso_robot.handlers.health import health
+from iso_robot.domain.repair_storage_paths import repair_storage_paths
 from iso_robot.repositories.schema import ensure_schema
+from iso_robot.middleware import SessionValidationMiddleware
 from iso_robot.routers.v1 import router as v1_router
 
 
@@ -24,12 +27,21 @@ async def lifespan(app: FastAPI):
     db_path = settings.resolved_database_path()
     db_path.parent.mkdir(parents=True, exist_ok=True)
     async with aiosqlite.connect(str(db_path)) as conn:
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA foreign_keys = ON")
         await ensure_schema(conn)
+        try:
+            await repair_storage_paths(conn, settings)
+        except Exception:
+            logging.getLogger(__name__).exception(
+                "Storage path repair failed; continuing startup"
+            )
     yield
 
 
 def create_app() -> FastAPI:
     app = FastAPI(title="ISO Robot API", lifespan=lifespan)
+    app.add_middleware(SessionValidationMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[
@@ -39,6 +51,7 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["X-Refresh-Token"],
     )
 
     @app.exception_handler(APIError)
@@ -69,8 +82,20 @@ def create_app() -> FastAPI:
             },
         )
 
+    @app.get("/", tags=["health"])
+    async def root() -> dict[str, str]:
+        return {
+            "status": "ok",
+            "health": "/health",
+            "api": "/api/v1",
+            "docs": "/docs",
+        }
+
     app.add_api_route("/health", health, methods=["GET"], tags=["health"])
     app.include_router(v1_router, prefix="/api/v1")
+    # Convenience aliases (same handlers as /api/v1/auth/*) for clients that omit the prefix.
+    app.add_api_route("/auth/login", auth.login, methods=["POST"], tags=["auth"])
+    app.add_api_route("/auth/register", auth.register_user, methods=["POST"], tags=["auth"])
     return app
 
 

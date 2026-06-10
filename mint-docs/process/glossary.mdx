@@ -1,0 +1,115 @@
+---
+title: "Glossary"
+description: "Plain-English definitions for every term used across the platform and this document."
+icon: "book-bookmark"
+---
+
+Keep this page open in a second tab while you read. Terms are grouped by where you
+first meet them in the pipeline.
+
+## Pipeline objects
+
+<AccordionGroup>
+  <Accordion title="Organisation (client org)" icon="building">
+    The tenant being analysed. Identified by `client_org_id`. Every document,
+    control, issue, and risk belongs to exactly one organisation, keeping clients
+    fully isolated from each other.
+  </Accordion>
+  <Accordion title="Control document" icon="file-pdf">
+    A source file uploaded for an organisation — a policy, standard, or regulation
+    (PDF, DOCX, XLSX, or TXT).
+  </Accordion>
+  <Accordion title="Control" icon="clipboard-check">
+    One distinct, auditable requirement extracted from a document — a single
+    obligation, mandatory procedure, or measurable rule. In plain terms: **one rule
+    the organisation must follow**, with its source page kept for traceability.
+  </Accordion>
+  <Accordion title="Issue" icon="triangle-exclamation">
+    A risk theme synthesised from a cluster of related controls. In plain terms:
+    **a thing that could go wrong**, framed from the requirements that point to it.
+  </Accordion>
+  <Accordion title="Classification" icon="chart-pie">
+    Analytical lenses applied to an issue — PESTEL, SWOT, TVRA, and geo/global tags.
+    The frameworks that make a risk legible to leadership.
+  </Accordion>
+  <Accordion title="Risk library" icon="book">
+    A seeded catalogue of known enterprise risks that discovery matches the
+    organisation's issues against — industry knowledge, captured once.
+  </Accordion>
+  <Accordion title="Candidate risk" icon="clipboard-list">
+    A proposed risk produced by discovery, showing whether it matched a library
+    entry and how strong the match was.
+  </Accordion>
+  <Accordion title="Risk assessment" icon="gauge">
+    A scored issue — likelihood, consequence, control effectiveness, and the derived
+    inherent / residual ratings plus recommended response.
+  </Accordion>
+  <Accordion title="Portal risk" icon="list-check">
+    A risk an analyst approved and published to the organisation's register — the
+    final deliverable.
+  </Accordion>
+</AccordionGroup>
+
+## Scoring terms
+
+| Term | Plain-English meaning |
+| --- | --- |
+| **Likelihood** | How probable the risk is (Rare → Almost Certain) |
+| **Consequence** | How damaging it would be (Insignificant → Severe) |
+| **Velocity** | How fast it would hit once it starts (Very Slow → Immediate) |
+| **Control effectiveness** | How well existing controls cover it (Effective → Uncontrolled) |
+| **Inherent risk** | Exposure **before** controls are considered |
+| **Residual risk** | Exposure **after** controls do their job |
+| **Risk response** | What to do: Accept, Mitigate, Transfer, or Avoid |
+| **Risk type** | Category, e.g. Compliance, Operational, Cyber Security |
+
+## Frameworks
+
+<CardGroup cols={2}>
+  <Card title="PESTEL" icon="globe">
+    Political, Economic, Social, Technological, Environmental, Legal — external
+    forces acting on the organisation.
+  </Card>
+  <Card title="SWOT" icon="table-cells">
+    Strengths, Weaknesses, Opportunities, Threats — internal vs. external posture.
+  </Card>
+  <Card title="TVRA" icon="shield-halved">
+    Threat, Vulnerability & Risk Assessment — who might attack, the weak points, and
+    the likelihood/impact.
+  </Card>
+  <Card title="ISO 31000 / 27001" icon="certificate">
+    The risk-management and information-security standards the scoring approach is
+    modelled on.
+  </Card>
+</CardGroup>
+
+## Technical terms
+
+<AccordionGroup>
+  <Accordion title="Background job" icon="gears">
+    A slow task (extraction, scoring, …) that runs behind the scenes so the system
+    stays responsive. You start it, poll it, then read the result. See
+    [Background Jobs](/process/background-jobs).
+  </Accordion>
+  <Accordion title="Bearer token" icon="key">
+    The secure pass returned at login. Sent on the `Authorization` header to prove
+    who you are on every protected request.
+  </Accordion>
+  <Accordion title="BM25" icon="magnifying-glass">
+    A keyword-ranking algorithm used in discovery to score how well a library risk
+    matches an issue. The score is exposed as `bm25_score`, so matches are
+    explainable.
+  </Accordion>
+  <Accordion title="LLM (large language model)" icon="robot">
+    The AI that reads text and produces structured judgments — extracting controls,
+    framing issues, classifying, and rating. It never computes final risk levels.
+  </Accordion>
+  <Accordion title="Azure Document Intelligence" icon="file-magnifying-glass">
+    The service that converts PDFs into layout-aware text with page markers, so
+    every control can keep its source page.
+  </Accordion>
+  <Accordion title="Heuristic fallback" icon="shield-halved">
+    A deterministic rule-based backup used when the AI is unavailable, so the
+    pipeline still produces output.
+  </Accordion>
+</AccordionGroup>

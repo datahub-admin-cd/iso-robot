@@ -101,3 +101,37 @@ async def get_audit_repo(
     db: Annotated[aiosqlite.Connection, Depends(get_db)],
 ) -> AuditLogRepository:
     return AuditLogRepository(db)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Auth dependency — reads the claims the middleware already validated, loads user.
+# ─────────────────────────────────────────────────────────────────────────────
+from fastapi import Request  # noqa: E402
+
+from iso_robot.errors import APIError  # noqa: E402
+from iso_robot.repositories.org_repository import UserRepository  # noqa: E402
+
+
+async def get_user_repo_for_auth(
+    db: Annotated[aiosqlite.Connection, Depends(get_db)],
+) -> UserRepository:
+    return UserRepository(db)
+
+
+async def get_current_user(
+    request: Request,
+    user_repo: Annotated[UserRepository, Depends(get_user_repo_for_auth)],
+) -> dict:
+    claims = getattr(request.state, "user_claims", None)
+    if not claims or "sub" not in claims:
+        raise APIError("Not authenticated", code="UNAUTHORIZED", status_code=401)
+    user = await user_repo.get_by_id(claims["sub"])
+    if not user or not user.get("is_active", 1):
+        raise APIError("User not found or inactive", code="UNAUTHORIZED", status_code=401)
+    return user
+
+async def require_admin(
+    current_user: Annotated[dict, Depends(get_current_user)],
+) -> dict:
+    if current_user.get("role") != "admin":
+        raise APIError("Admin privileges required", code="FORBIDDEN", status_code=403)
+    return current_user
