@@ -23,6 +23,8 @@ services:
       - ./data:/app/data
       # Optional document scan folder (PDFs/HTML).
       - ./all-docs:/app/all-docs
+      # POC workbook for seed-from-poc endpoints (host file overrides image copy).
+      - "./ISO ROBOT RISK POC.xlsx:/app/ISO ROBOT RISK POC.xlsx:ro"
     restart: unless-stopped
 
   docs:
