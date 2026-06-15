@@ -87,18 +87,56 @@ flowchart TD
 ```json
 {
   "status": "success",
-  "data": [
-    {
-      "id": "uuid",
-      "client_org_id": "uuid",
-      "issue_id": "uuid",
-      "risk_title": "…",
-      "risk_rating": "Medium",
-      "created_at": "…"
-    }
-  ]
+  "message": "Risks retrieved",
+  "data": {
+    "count": 1,
+    "risks": [
+      {
+        "id": "uuid",
+        "client_org_id": "uuid",
+        "issue_id": "uuid",
+        "risk_title": "Quarterly access review gaps",
+        "risk_description": null,
+        "risk_rating": "Medium",
+        "risk_score": null,
+        "submitted_by": null,
+        "created_at": "2026-06-12T11:07:57Z",
+        "tag_status": "applied",
+        "owner_user_id": "uuid",
+        "accountable_user_id": null,
+        "owner_assignment_status": "assigned",
+        "updated_at": "2026-06-12T12:13:14Z",
+        "mapped_controls": [],
+        "mapped_functions": [],
+        "mapped_locations": [],
+        "mapped_processes": [],
+        "process_tags": [{ "id": "uuid", "name": "Data Management" }],
+        "function_tags": [{ "id": "uuid", "name": "Risk Management" }],
+        "department_tags": [{ "id": "uuid", "name": "Risk Management" }],
+        "kpi_tags": [{ "id": "uuid", "name": "Control testing completion rate" }],
+        "region_tags": [{ "id": "uuid", "name": "Global" }],
+        "control_family_tags": [],
+        "owner": {
+          "id": "uuid",
+          "name": "Head of Risk Management",
+          "email": "head.risk-management@platform.local",
+          "title": "Head of Risk Management"
+        },
+        "accountable": null
+      }
+    ]
+  },
+  "errors": []
 }
 ```
+
+<Note>
+The list response reflects the *current* state of each risk, including the
+results of [Stage 09 · Risk Tagging](/flow/09-risk-tagging) (`tag_status`,
+`*_tags`) and [Stage 10 · Risk Owner Assignment](/flow/10-risk-owner-assignment)
+(`owner_assignment_status`, `owner`, `accountable`). These fields default to
+`"untagged"` / `"unassigned"` / `null` until those stages have run for a risk.
+</Note>
 
 <Check>
 At this point the full chain is closed: each published risk links to its issue,

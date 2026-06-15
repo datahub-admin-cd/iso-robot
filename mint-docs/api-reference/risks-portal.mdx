@@ -48,20 +48,59 @@ GET /risks/{orgId}
 
 **Auth:** Bearer
 
+Returns the organisation's risk register — each risk reflects its current
+tagging state (`tag_status`, `*_tags`) and owner-assignment state
+(`owner_assignment_status`, `owner`, `accountable`), in addition to the core
+risk fields.
+
+The `owner` and `accountable` objects are resolved from the organisation
+hierarchy (`org_hierarchy_users`, by `owner_user_id` / `accountable_user_id`)
+and are `null` until an owner/accountable user has been assigned.
+
 ### Response `200`
 
 ```json
 {
   "status": "success",
-  "data": [
-    {
-      "id": "uuid",
-      "client_org_id": "uuid",
-      "issue_id": "uuid",
-      "risk_title": "Quarterly access review gaps",
-      "risk_rating": "Medium",
-      "created_at": "…"
-    }
-  ]
+  "message": "Risks retrieved",
+  "data": {
+    "count": 1,
+    "risks": [
+      {
+        "id": "uuid",
+        "client_org_id": "uuid",
+        "issue_id": "uuid",
+        "risk_title": "Quarterly access review gaps",
+        "risk_description": null,
+        "risk_rating": "Medium",
+        "risk_score": null,
+        "submitted_by": null,
+        "created_at": "2026-06-12T11:07:57Z",
+        "updated_at": "2026-06-12T12:13:14Z",
+        "mapped_controls": [],
+        "mapped_functions": [],
+        "mapped_locations": [],
+        "mapped_processes": [],
+        "tag_status": "applied",
+        "process_tags": [{ "id": "uuid", "name": "Data Management" }],
+        "function_tags": [{ "id": "uuid", "name": "Risk Management" }],
+        "department_tags": [{ "id": "uuid", "name": "Risk Management" }],
+        "kpi_tags": [{ "id": "uuid", "name": "Control testing completion rate" }],
+        "region_tags": [{ "id": "uuid", "name": "Global" }],
+        "control_family_tags": [],
+        "owner_assignment_status": "assigned",
+        "owner_user_id": "uuid",
+        "accountable_user_id": null,
+        "owner": {
+          "id": "uuid",
+          "name": "Head of Risk Management",
+          "email": "head.risk-management@platform.local",
+          "title": "Head of Risk Management"
+        },
+        "accountable": null
+      }
+    ]
+  },
+  "errors": []
 }
 ```
