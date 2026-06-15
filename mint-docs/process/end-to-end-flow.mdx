@@ -27,9 +27,13 @@ flowchart TD
     H --> I[07 · Risk scoring — JOB]
     I --> J[07 · GET risk assessment]
     J --> K[08 · Publish selected risks to portal]
+    K --> L[09 · Risk tagging — JOB]
+    L --> M[09 · Apply selected tags]
+    M --> N[10 · Owner assignment — JOB]
+    N --> O[10 · Apply selected assignments]
 
     classDef job fill:#0E7490,stroke:#22D3EE,color:#fff;
-    class C,E,F,H,I job;
+    class C,E,F,H,I,L,N job;
 ```
 
 <Note>
@@ -91,6 +95,18 @@ Boxes in teal are **background jobs** — start, poll, then read the result. See
       <td>Analyst-selected risks</td>
       <td>Published risk register</td>
       <td>Sync</td>
+    </tr>
+    <tr>
+      <td>[09 Risk Tagging](/flow/09-risk-tagging)</td>
+      <td>Trigger on the org's register</td>
+      <td>Reviewed process / function / KPI / region / control-family tags</td>
+      <td>Job + sync apply</td>
+    </tr>
+    <tr>
+      <td>[10 Risk Owner Assignment](/flow/10-risk-owner-assignment)</td>
+      <td>Hierarchy snapshot + tagged risks</td>
+      <td>Accountable owners with alternates & rationale</td>
+      <td>Job + sync apply</td>
     </tr>
   </tbody>
 </table>

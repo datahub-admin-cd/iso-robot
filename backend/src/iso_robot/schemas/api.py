@@ -365,6 +365,190 @@ class ScoreRisksRequest(BaseModel):
     controls: Optional[List[str]] = None
 
 
+# =============================================================================
+# STAGE 09 — Risk Tagging
+# =============================================================================
+
+class UntaggedRiskItem(BaseModel):
+    id: str
+    client_org_id: str
+    issue_id: Optional[str] = None
+    risk_title: str
+    risk_rating: Optional[str] = None
+    process_tags: List[str] = Field(default_factory=list)
+    function_tags: List[str] = Field(default_factory=list)
+    kpi_tags: List[str] = Field(default_factory=list)
+    tag_status: str
+    missing_dimensions: List[str] = Field(default_factory=list)
+    created_at: str
+
+
+class CatalogScope(BaseModel):
+    process_catalog_id: Optional[str] = None
+    function_catalog_id: Optional[str] = None
+    department_catalog_id: Optional[str] = None
+    kpi_catalog_id: Optional[str] = None
+    region_catalog_id: Optional[str] = None
+    control_family_catalog_id: Optional[str] = None
+
+
+class RiskTaggingRunRequest(BaseModel):
+    client_org_id: str
+    risk_ids: Optional[List[str]] = None
+    only_untagged: bool = True
+    overwrite_existing: bool = False
+    tag_dimensions: Optional[List[str]] = None
+    catalog_scope: Optional[CatalogScope] = None
+    auto_apply: bool = False
+    confidence_threshold: float = Field(default=0.75, ge=0.0, le=1.0)
+    review_required_below_confidence: float = Field(default=0.75, ge=0.0, le=1.0)
+
+
+class RiskTagRecord(BaseModel):
+    id: str
+    client_org_id: str
+    risk_id: str
+    risk_title: Optional[str] = None
+    tag_status: str
+    confidence: Optional[float] = None
+    rationale: Optional[str] = None
+    process_tags: List[Dict[str, Any]] = Field(default_factory=list)
+    function_tags: List[Dict[str, Any]] = Field(default_factory=list)
+    department_tags: List[Dict[str, Any]] = Field(default_factory=list)
+    kpi_tags: List[Dict[str, Any]] = Field(default_factory=list)
+    region_tags: List[Dict[str, Any]] = Field(default_factory=list)
+    control_family_tags: List[Dict[str, Any]] = Field(default_factory=list)
+    evidence: List[str] = Field(default_factory=list)
+    catalog_version: Optional[str] = None
+    auto_applied: bool = False
+    reviewer_user_id: Optional[str] = None
+    reviewer_notes: Optional[str] = None
+    created_at: str
+    updated_at: str
+
+
+class SelectedTagItem(BaseModel):
+    risk_id: str
+    process_ids: List[str] = Field(default_factory=list)
+    function_ids: List[str] = Field(default_factory=list)
+    department_ids: List[str] = Field(default_factory=list)
+    kpi_ids: List[str] = Field(default_factory=list)
+    region_ids: List[str] = Field(default_factory=list)
+    control_family_ids: List[str] = Field(default_factory=list)
+    replace_existing: bool = False
+    reviewer_notes: Optional[str] = None
+
+
+class ApplySelectedTagsRequest(BaseModel):
+    client_org_id: str
+    selected_tags: List[SelectedTagItem] = Field(min_length=1)
+
+
+# =============================================================================
+# STAGE 10 — Risk Owner Assignment
+# =============================================================================
+
+class UnassignedRiskItem(BaseModel):
+    id: str
+    client_org_id: str
+    risk_title: str
+    risk_rating: Optional[str] = None
+    process_tags: List[str] = Field(default_factory=list)
+    function_tags: List[str] = Field(default_factory=list)
+    kpi_tags: List[str] = Field(default_factory=list)
+    owner_user_id: Optional[str] = None
+    accountable_user_id: Optional[str] = None
+    owner_assignment_status: str
+    created_at: str
+
+
+class HierarchySource(BaseModel):
+    hierarchy_snapshot_id: Optional[str] = None
+    include_inactive_users: bool = False
+
+
+class RiskAssignmentRunRequest(BaseModel):
+    client_org_id: str
+    risk_ids: Optional[List[str]] = None
+    only_unassigned: bool = True
+    use_tagging_context: bool = True
+    hierarchy_source: HierarchySource
+    assignment_strategy: str = "best_owner_with_alternates"
+    auto_apply: bool = False
+    confidence_threshold: float = Field(default=0.8, ge=0.0, le=1.0)
+    fallback_owner_role: str = "risk_admin"
+    review_required_below_confidence: float = Field(default=0.8, ge=0.0, le=1.0)
+
+
+class RecommendedOwner(BaseModel):
+    user_id: Optional[str] = None
+    name: Optional[str] = None
+    email: Optional[str] = None
+    title: Optional[str] = None
+    function: Optional[str] = None
+    department: Optional[str] = None
+    region: Optional[str] = None
+    management_level: Optional[str] = None
+
+
+class AlternateOwner(BaseModel):
+    user_id: Optional[str] = None
+    name: Optional[str] = None
+    email: Optional[str] = None
+    title: Optional[str] = None
+    confidence: Optional[float] = None
+
+
+class RiskAssignmentRecord(BaseModel):
+    id: str
+    client_org_id: str
+    risk_id: str
+    risk_title: Optional[str] = None
+    risk_rating: Optional[str] = None
+    assignment_status: str
+    recommended_owner: Optional[RecommendedOwner] = None
+    alternate_owners: List[AlternateOwner] = Field(default_factory=list)
+    confidence: Optional[float] = None
+    matched_on: List[str] = Field(default_factory=list)
+    rationale: Optional[str] = None
+    hierarchy_snapshot_id: Optional[str] = None
+    auto_applied: bool = False
+    reviewer_user_id: Optional[str] = None
+    reviewer_notes: Optional[str] = None
+    created_at: str
+    updated_at: str
+
+
+class SelectedAssignmentItem(BaseModel):
+    risk_id: str
+    owner_user_id: str
+    accountable_user_id: Optional[str] = None
+    assignment_type: str = "primary_owner"
+    replace_existing: bool = False
+    reviewer_notes: Optional[str] = None
+
+
+class ApplySelectedAssignmentsRequest(BaseModel):
+    client_org_id: str
+    selected_assignments: List[SelectedAssignmentItem] = Field(min_length=1)
+
+
+class HierarchyUserItem(BaseModel):
+    user_id: str
+    name: Optional[str] = None
+    email: Optional[str] = None
+    title: Optional[str] = None
+    function: Optional[str] = None
+    department: Optional[str] = None
+    region: Optional[str] = None
+    management_level: Optional[str] = None
+    manager_user_id: Optional[str] = None
+    is_active: bool = True
+    ownership_roles: List[str] = Field(default_factory=list)
+    owned_process_ids: List[str] = Field(default_factory=list)
+    owned_kpi_ids: List[str] = Field(default_factory=list)
+
+
 class RiskAssessmentResponse(BaseModel):
     issue_id: str
     model_version: Optional[str] = None

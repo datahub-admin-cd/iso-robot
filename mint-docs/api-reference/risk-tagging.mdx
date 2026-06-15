@@ -1,0 +1,280 @@
+---
+title: "Risk Tagging"
+description: "Stage 09 endpoints — list untagged risks, run the tagging job, review recommendations, apply approved tags, and read completeness KPIs."
+icon: "tags"
+---
+
+All endpoints sit under `/api/v1`, require `Authorization: Bearer <token>`, and use
+the [common error format](/api-reference/conventions). Process narrative and the
+matching methodology (with sources): [Stage 09 · Risk Tagging](/flow/09-risk-tagging).
+
+## List untagged risks
+
+```http
+GET /risks/untagged?client_org_id={orgId}&limit=100&include_partial=true
+```
+
+**Auth:** Bearer · **Read-only**
+
+Returns the tagging work queue: risks where required dimensions
+(`process`, `function`, `kpi`) are missing.
+
+| Query param | Required | Meaning |
+| --- | --- | --- |
+| `client_org_id` | Yes | Organisation whose register is checked |
+| `limit` | No | Max rows (default 100, max 1000) |
+| `include_partial` | No | Include partially tagged risks (default `true`) |
+
+### Response `200`
+
+```json
+[
+  {
+    "id": "risk-uuid",
+    "client_org_id": "org-uuid",
+    "issue_id": "issue-uuid",
+    "risk_title": "Delayed regulatory reporting due to fragmented control ownership",
+    "risk_rating": "High",
+    "process_tags": [],
+    "function_tags": [],
+    "kpi_tags": [],
+    "tag_status": "untagged",
+    "missing_dimensions": ["process", "function", "kpi"],
+    "created_at": "2026-06-09T10:30:00Z"
+  }
+]
+```
+
+| HTTP | code |
+| --- | --- |
+| 401 | `UNAUTHORIZED` / `SESSION_INVALID` |
+| 403 | `FORBIDDEN` |
+| 404 | `CLIENT_ORG_NOT_FOUND` |
+| 422 | `validation_error` (e.g. non-numeric `limit`) |
+
+---
+
+## Start risk tagging job
+
+```http
+POST /risk-tagging/run
+```
+
+**Auth:** Bearer · **Job type:** `risk_tagging` · **Returns `202`**
+
+Matches eligible risks against the organisation catalogs and stores
+recommendations with confidence, rationale, and evidence. Reference catalogs are
+bootstrapped from Business Demography on first run.
+
+### Request
+
+```json
+{
+  "client_org_id": "org-uuid",
+  "risk_ids": ["risk-uuid-1"],
+  "only_untagged": true,
+  "overwrite_existing": false,
+  "tag_dimensions": ["process", "function", "department", "kpi", "region", "control_family"],
+  "catalog_scope": { "process_catalog_id": "catalog-uuid" },
+  "auto_apply": false,
+  "confidence_threshold": 0.75,
+  "review_required_below_confidence": 0.75
+}
+```
+
+Only `client_org_id` is required. `auto_apply` is **disabled by default**; when
+enabled, only recommendations at or above `confidence_threshold` are applied and
+they are flagged `auto_applied` for audit.
+
+### Response `202`
+
+```json
+{
+  "status": "accepted",
+  "message": "Risk tagging job started",
+  "data": {
+    "job_id": "job-uuid",
+    "type": "risk_tagging",
+    "client_org_id": "org-uuid",
+    "risks_queued": 42,
+    "processing_status": "in_progress"
+  }
+}
+```
+
+Poll [`GET /jobs/{jobId}`](/api-reference/jobs#poll-job-status); `payload.progress`
+reports `risks_total`, `risks_processed`, `tags_proposed`, `tags_applied`,
+`needs_review` live.
+
+| HTTP | code |
+| --- | --- |
+| 400 | `NO_ELIGIBLE_RISKS` |
+| 404 | `CLIENT_ORG_NOT_FOUND` / `CATALOG_NOT_FOUND` |
+| 409 | `JOB_ALREADY_RUNNING` (same job type, same org) |
+| 422 | `INVALID_TAG_DIMENSION` / `validation_error` |
+
+---
+
+## List risk tag recommendations
+
+```http
+GET /risk-tags?client_org_id={orgId}&risk_id={riskId}&status=proposed&limit=100
+```
+
+**Auth:** Bearer
+
+Returns tag values **and** the reasoning — never just IDs. Applied and rejected
+records stay visible for audit.
+
+| Query param | Required | Meaning |
+| --- | --- | --- |
+| `client_org_id` | Yes | Organisation scope |
+| `risk_id` | No | Single-risk filter |
+| `status` | No | `proposed` · `applied` · `needs_review` · `rejected` |
+| `limit` | No | Max rows (default 100) |
+
+### Response `200`
+
+```json
+[
+  {
+    "id": "risk-tag-uuid",
+    "client_org_id": "org-uuid",
+    "risk_id": "risk-uuid",
+    "risk_title": "Delayed regulatory reporting due to fragmented control ownership",
+    "tag_status": "proposed",
+    "confidence": 0.86,
+    "rationale": "Catalog matching across 6 dimensions with aggregate confidence 0.86.",
+    "process_tags": [
+      {
+        "process_id": "process-uuid",
+        "process_name": "Regulatory Reporting",
+        "confidence": 0.91,
+        "rationale": "The risk text references regulatory, reporting, which maps to 'Regulatory Reporting' in the organisation process catalog."
+      }
+    ],
+    "function_tags": [{ "function_id": "…", "function_name": "Compliance", "confidence": 0.88, "rationale": "…" }],
+    "kpi_tags": [{ "kpi_id": "…", "kpi_name": "Regulatory submissions completed on time", "confidence": 0.84, "rationale": "…" }],
+    "department_tags": [],
+    "region_tags": [],
+    "control_family_tags": [],
+    "evidence": ["risk_title", "risk_description", "stage08_mappings"],
+    "catalog_version": "v1",
+    "auto_applied": false,
+    "reviewer_notes": null,
+    "created_at": "2026-06-09T10:35:00Z",
+    "updated_at": "2026-06-09T10:35:00Z"
+  }
+]
+```
+
+| HTTP | code |
+| --- | --- |
+| 404 | `CLIENT_ORG_NOT_FOUND` / `RISK_NOT_FOUND` |
+| 422 | `INVALID_STATUS` |
+
+---
+
+## Apply selected risk tags
+
+```http
+POST /risk-tagging/apply-selected
+```
+
+**Auth:** Bearer
+
+The human-in-the-loop control point: writes analyst-approved tags to the official
+register and stores reviewer identity + timestamp on the recommendation record.
+
+### Request
+
+```json
+{
+  "client_org_id": "org-uuid",
+  "selected_tags": [
+    {
+      "risk_id": "risk-uuid",
+      "process_ids": ["process-uuid"],
+      "function_ids": ["function-uuid"],
+      "department_ids": ["department-uuid"],
+      "kpi_ids": ["kpi-uuid-1", "kpi-uuid-2"],
+      "region_ids": ["region-uuid"],
+      "control_family_ids": ["control-family-uuid"],
+      "replace_existing": false,
+      "reviewer_notes": "Accepted system recommendation based on regulatory reporting process linkage."
+    }
+  ]
+}
+```
+
+By default incoming tags are **merged** with existing approved tags (nothing is
+silently removed); set `replace_existing: true` to replace a dimension.
+
+### Response `200`
+
+```json
+{
+  "status": "success",
+  "message": "Selected risk tags applied",
+  "data": {
+    "updated": [{ "risk_id": "risk-uuid", "tag_status": "applied" }],
+    "skipped": [],
+    "needs_review": []
+  }
+}
+```
+
+| HTTP | code |
+| --- | --- |
+| 404 | `RISK_NOT_FOUND` / `TAG_REFERENCE_NOT_FOUND` |
+| 409 | `TAG_ALREADY_APPLIED` (every selected risk already carries the same approved tags) |
+| 422 | `validation_error` |
+
+---
+
+## Get risk tagging KPIs
+
+```http
+GET /risk-tagging/kpis?client_org_id={orgId}
+```
+
+**Auth:** Bearer
+
+### Response `200`
+
+```json
+{
+  "status": "success",
+  "data": {
+    "client_org_id": "org-uuid",
+    "risk_register_count": 125,
+    "fully_tagged": 96,
+    "partially_tagged": 17,
+    "untagged": 12,
+    "needs_review": 9,
+    "tagging_completion_percentage": 76.8,
+    "missing_dimensions": { "process": 8, "function": 5, "kpi": 14, "region": 6 },
+    "last_updated_at": "2026-06-09T11:10:00Z"
+  }
+}
+```
+
+Completion is computed against the required dimensions (`process`, `function`,
+`kpi`); `missing_dimensions` additionally tracks `region`. Untagged, partially
+tagged, and review-required risks are counted separately.
+
+| HTTP | code |
+| --- | --- |
+| 401 | `UNAUTHORIZED` |
+| 403 | `FORBIDDEN` |
+| 404 | `CLIENT_ORG_NOT_FOUND` |
+
+---
+
+## Methodology & sources
+
+The catalog taxonomy and matching rules follow published practice — ISO 31000:2018
+and COSO ERM 2017 for business-context tagging, ISO/IEC 27001:2022 Annex A for the
+control families, the [MIT AI Risk Repository](https://airisk.mit.edu/navigator#/risks/browse)
+for the AI & Model Governance family, and NIST AI RMF for the human-oversight
+design. Full table: [Stage 09 · Domain logic & sources](/flow/09-risk-tagging#domain-logic--sources).

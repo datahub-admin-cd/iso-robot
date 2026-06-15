@@ -19,6 +19,8 @@ _ASYNC_JOB_TYPES = frozenset(
         "discover_risks",
         "issues_from_controls",
         "score_risks",
+        "risk_tagging",
+        "risk_owner_assignment",
     }
 )
 

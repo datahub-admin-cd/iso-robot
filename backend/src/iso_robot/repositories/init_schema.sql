@@ -243,6 +243,17 @@ CREATE TABLE IF NOT EXISTS risks (
   mapped_locations_json TEXT NOT NULL DEFAULT '[]',
   mapped_processes_json TEXT NOT NULL DEFAULT '[]',
   submitted_by TEXT,
+  process_tags_json TEXT NOT NULL DEFAULT '[]',
+  function_tags_json TEXT NOT NULL DEFAULT '[]',
+  department_tags_json TEXT NOT NULL DEFAULT '[]',
+  kpi_tags_json TEXT NOT NULL DEFAULT '[]',
+  region_tags_json TEXT NOT NULL DEFAULT '[]',
+  control_family_tags_json TEXT NOT NULL DEFAULT '[]',
+  tag_status TEXT NOT NULL DEFAULT 'untagged',
+  owner_user_id TEXT,
+  accountable_user_id TEXT,
+  owner_assignment_status TEXT NOT NULL DEFAULT 'unassigned',
+  updated_at TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   FOREIGN KEY (client_org_id) REFERENCES client_organizations(id),
   FOREIGN KEY (issue_id) REFERENCES issues(id) ON DELETE SET NULL
@@ -296,3 +307,119 @@ CREATE TABLE IF NOT EXISTS issue_controls (
 );
 
 CREATE INDEX IF NOT EXISTS idx_issue_controls_issue ON issue_controls(issue_id);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- STAGE 09 / 10 TABLES — Risk Tagging and Risk Owner Assignment
+-- ─────────────────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS catalog_items (
+  id TEXT PRIMARY KEY,
+  client_org_id TEXT NOT NULL,
+  catalog_id TEXT NOT NULL,
+  dimension TEXT NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT,
+  keywords_json TEXT NOT NULL DEFAULT '[]',
+  criticality TEXT NOT NULL DEFAULT 'standard',
+  owner_user_id TEXT,
+  catalog_version TEXT NOT NULL DEFAULT 'v1',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (client_org_id) REFERENCES client_organizations(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_catalog_items_org_dim ON catalog_items(client_org_id, dimension);
+CREATE INDEX IF NOT EXISTS idx_catalog_items_catalog ON catalog_items(catalog_id);
+
+CREATE TABLE IF NOT EXISTS org_hierarchy_snapshots (
+  id TEXT PRIMARY KEY,
+  client_org_id TEXT NOT NULL,
+  snapshot_status TEXT NOT NULL DEFAULT 'approved',
+  source TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (client_org_id) REFERENCES client_organizations(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_hierarchy_snapshots_org ON org_hierarchy_snapshots(client_org_id);
+
+CREATE TABLE IF NOT EXISTS org_hierarchy_users (
+  id TEXT PRIMARY KEY,
+  snapshot_id TEXT NOT NULL,
+  client_org_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  name TEXT,
+  email TEXT,
+  title TEXT,
+  function TEXT,
+  department TEXT,
+  region TEXT,
+  management_level TEXT,
+  manager_user_id TEXT,
+  is_active INTEGER NOT NULL DEFAULT 1,
+  ownership_roles_json TEXT NOT NULL DEFAULT '[]',
+  owned_process_ids_json TEXT NOT NULL DEFAULT '[]',
+  owned_kpi_ids_json TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (snapshot_id) REFERENCES org_hierarchy_snapshots(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_hierarchy_users_snapshot ON org_hierarchy_users(snapshot_id);
+CREATE INDEX IF NOT EXISTS idx_hierarchy_users_org ON org_hierarchy_users(client_org_id);
+
+CREATE TABLE IF NOT EXISTS risk_tags (
+  id TEXT PRIMARY KEY,
+  client_org_id TEXT NOT NULL,
+  risk_id TEXT NOT NULL,
+  process_tags_json TEXT NOT NULL DEFAULT '[]',
+  function_tags_json TEXT NOT NULL DEFAULT '[]',
+  department_tags_json TEXT NOT NULL DEFAULT '[]',
+  kpi_tags_json TEXT NOT NULL DEFAULT '[]',
+  region_tags_json TEXT NOT NULL DEFAULT '[]',
+  control_family_tags_json TEXT NOT NULL DEFAULT '[]',
+  tag_status TEXT NOT NULL DEFAULT 'proposed',
+  confidence REAL,
+  rationale TEXT,
+  evidence_json TEXT NOT NULL DEFAULT '[]',
+  inputs_json TEXT NOT NULL DEFAULT '{}',
+  catalog_version TEXT,
+  run_job_id TEXT,
+  auto_applied INTEGER NOT NULL DEFAULT 0,
+  reviewer_user_id TEXT,
+  reviewer_notes TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (client_org_id) REFERENCES client_organizations(id),
+  FOREIGN KEY (risk_id) REFERENCES risks(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_risk_tags_org ON risk_tags(client_org_id);
+CREATE INDEX IF NOT EXISTS idx_risk_tags_risk ON risk_tags(risk_id);
+CREATE INDEX IF NOT EXISTS idx_risk_tags_status ON risk_tags(tag_status);
+
+CREATE TABLE IF NOT EXISTS risk_assignments (
+  id TEXT PRIMARY KEY,
+  client_org_id TEXT NOT NULL,
+  risk_id TEXT NOT NULL,
+  recommended_owner_user_id TEXT,
+  recommended_owner_json TEXT NOT NULL DEFAULT '{}',
+  alternate_owners_json TEXT NOT NULL DEFAULT '[]',
+  accountable_user_id TEXT,
+  assignment_type TEXT,
+  assignment_status TEXT NOT NULL DEFAULT 'proposed',
+  confidence REAL,
+  matched_on_json TEXT NOT NULL DEFAULT '[]',
+  rationale TEXT,
+  inputs_json TEXT NOT NULL DEFAULT '{}',
+  hierarchy_snapshot_id TEXT,
+  run_job_id TEXT,
+  auto_applied INTEGER NOT NULL DEFAULT 0,
+  reviewer_user_id TEXT,
+  reviewer_notes TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (client_org_id) REFERENCES client_organizations(id),
+  FOREIGN KEY (risk_id) REFERENCES risks(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_risk_assignments_org ON risk_assignments(client_org_id);
+CREATE INDEX IF NOT EXISTS idx_risk_assignments_risk ON risk_assignments(risk_id);
+CREATE INDEX IF NOT EXISTS idx_risk_assignments_status ON risk_assignments(assignment_status);

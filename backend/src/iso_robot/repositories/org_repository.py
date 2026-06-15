@@ -518,13 +518,92 @@ class RiskRepository:
         row = await cur.fetchone()
         return dict(row) if row else {}
 
-    async def list_for_org(self, client_org_id: str) -> List[dict[str, Any]]:
+    async def list_for_org(self, client_org_id: str, limit: int = 1000) -> List[dict[str, Any]]:
         cur = await self._conn.execute(
-            "SELECT * FROM risks WHERE client_org_id = ? ORDER BY datetime(created_at) DESC",
-            (client_org_id,),
+            "SELECT * FROM risks WHERE client_org_id = ? ORDER BY datetime(created_at) DESC LIMIT ?",
+            (client_org_id, limit),
         )
         rows = await cur.fetchall()
-        return [dict(r) for r in rows]
+        return [self._normalize(dict(r)) for r in rows]
+
+    async def get_by_id(self, risk_id: str) -> Optional[dict[str, Any]]:
+        cur = await self._conn.execute("SELECT * FROM risks WHERE id = ?", (risk_id,))
+        row = await cur.fetchone()
+        return self._normalize(dict(row)) if row else None
+
+    async def count_for_org(self, client_org_id: str) -> int:
+        cur = await self._conn.execute(
+            "SELECT COUNT(*) FROM risks WHERE client_org_id = ?",
+            (client_org_id,),
+        )
+        row = await cur.fetchone()
+        return int(row[0]) if row else 0
+
+    async def update_applied_tags(
+        self,
+        risk_id: str,
+        *,
+        tags_by_dimension: Dict[str, List[dict[str, Any]]],
+        tag_status: str,
+    ) -> None:
+        await self._conn.execute(
+            """
+            UPDATE risks SET
+              process_tags_json = ?,
+              function_tags_json = ?,
+              department_tags_json = ?,
+              kpi_tags_json = ?,
+              region_tags_json = ?,
+              control_family_tags_json = ?,
+              tag_status = ?,
+              updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                dumps_json(tags_by_dimension.get("process") or []),
+                dumps_json(tags_by_dimension.get("function") or []),
+                dumps_json(tags_by_dimension.get("department") or []),
+                dumps_json(tags_by_dimension.get("kpi") or []),
+                dumps_json(tags_by_dimension.get("region") or []),
+                dumps_json(tags_by_dimension.get("control_family") or []),
+                tag_status, _now_iso(), risk_id,
+            ),
+        )
+        await self._conn.commit()
+
+    async def update_owner(
+        self,
+        risk_id: str,
+        *,
+        owner_user_id: Optional[str],
+        accountable_user_id: Optional[str],
+        owner_assignment_status: str,
+    ) -> None:
+        await self._conn.execute(
+            """
+            UPDATE risks SET
+              owner_user_id = ?,
+              accountable_user_id = ?,
+              owner_assignment_status = ?,
+              updated_at = ?
+            WHERE id = ?
+            """,
+            (owner_user_id, accountable_user_id, owner_assignment_status, _now_iso(), risk_id),
+        )
+        await self._conn.commit()
+
+    @staticmethod
+    def _normalize(row: dict[str, Any]) -> dict[str, Any]:
+        for key in (
+            "mapped_controls", "mapped_functions", "mapped_locations", "mapped_processes",
+            "process_tags", "function_tags", "department_tags",
+            "kpi_tags", "region_tags", "control_family_tags",
+        ):
+            raw = row.pop(f"{key}_json", None)
+            row[key] = _loads_json(raw)
+        row.setdefault("tag_status", "untagged")
+        row.setdefault("owner_assignment_status", "unassigned")
+        return row
 
 
 # ─────────────────────────────────────────────────────────────────────────────

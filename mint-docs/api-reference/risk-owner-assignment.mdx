@@ -1,0 +1,361 @@
+---
+title: "Risk Owner Assignment"
+description: "Stage 10 endpoints — list unassigned risks, read the organisation hierarchy, run the owner-matching job, review recommendations, apply assignments, and read coverage KPIs."
+icon: "user-check"
+---
+
+All endpoints sit under `/api/v1`, require `Authorization: Bearer <token>`, and use
+the [common error format](/api-reference/conventions). Process narrative and the
+weighted matching model (with sources):
+[Stage 10 · Risk Owner Assignment](/flow/10-risk-owner-assignment).
+
+## List unassigned risks
+
+```http
+GET /risks/unassigned?client_org_id={orgId}&limit=100&include_partially_assigned=true
+```
+
+**Auth:** Bearer · **Read-only**
+
+A risk is **unassigned** when `owner_user_id` is `null`, and **partially
+assigned** when an owner exists but the accountable owner or assignment review is
+missing.
+
+| Query param | Required | Meaning |
+| --- | --- | --- |
+| `client_org_id` | Yes | Organisation whose register is checked |
+| `limit` | No | Max rows (default 100, max 1000) |
+| `include_partially_assigned` | No | Include incomplete assignments (default `true`) |
+
+### Response `200`
+
+```json
+[
+  {
+    "id": "risk-uuid",
+    "client_org_id": "org-uuid",
+    "risk_title": "Delayed regulatory reporting due to fragmented control ownership",
+    "risk_rating": "High",
+    "process_tags": ["Regulatory Reporting"],
+    "function_tags": ["Compliance"],
+    "kpi_tags": ["Regulatory submissions completed on time"],
+    "owner_user_id": null,
+    "accountable_user_id": null,
+    "owner_assignment_status": "unassigned",
+    "created_at": "2026-06-09T10:30:00Z"
+  }
+]
+```
+
+| HTTP | code |
+| --- | --- |
+| 401 | `UNAUTHORIZED` / `SESSION_INVALID` |
+| 403 | `FORBIDDEN` |
+| 404 | `CLIENT_ORG_NOT_FOUND` |
+| 422 | `validation_error` |
+
+---
+
+## Start risk owner assignment job
+
+```http
+POST /risk-assignments/run
+```
+
+**Auth:** Bearer · **Job type:** `risk_owner_assignment` · **Returns `202`**
+
+Scores every active user in the approved hierarchy snapshot against each
+unassigned risk using the weighted model (KPI owner 0.35 · process owner 0.30 ·
+function 0.20 · department 0.10 · region 0.10 · management-level fit ±0.05) and
+stores the best owner plus alternates.
+
+### Request
+
+```json
+{
+  "client_org_id": "org-uuid",
+  "risk_ids": ["risk-uuid-1"],
+  "only_unassigned": true,
+  "use_tagging_context": true,
+  "hierarchy_source": {
+    "hierarchy_snapshot_id": "hierarchy-snapshot-uuid",
+    "include_inactive_users": false
+  },
+  "assignment_strategy": "best_owner_with_alternates",
+  "auto_apply": false,
+  "confidence_threshold": 0.8,
+  "fallback_owner_role": "risk_admin",
+  "review_required_below_confidence": 0.8
+}
+```
+
+`hierarchy_source` is required; omit `hierarchy_snapshot_id` inside it to use the
+latest approved snapshot. `assignment_strategy` is `best_owner_only` or
+`best_owner_with_alternates`.
+
+### Response `202`
+
+```json
+{
+  "status": "accepted",
+  "message": "Risk owner assignment job started",
+  "data": {
+    "job_id": "job-uuid",
+    "type": "risk_owner_assignment",
+    "client_org_id": "org-uuid",
+    "risks_queued": 37,
+    "processing_status": "in_progress"
+  }
+}
+```
+
+Poll [`GET /jobs/{jobId}`](/api-reference/jobs#poll-job-status); `payload.progress`
+reports `risks_total`, `risks_processed`, `owners_proposed`, `auto_assigned`,
+`needs_review`, `no_owner_found`.
+
+| HTTP | code |
+| --- | --- |
+| 400 | `NO_UNASSIGNED_RISKS` |
+| 404 | `CLIENT_ORG_NOT_FOUND` / `HIERARCHY_NOT_FOUND` |
+| 409 | `JOB_ALREADY_RUNNING` |
+| 422 | `validation_error` (e.g. missing `hierarchy_source`) |
+| 424 | `RISK_TAGGING_REQUIRED` (tagging context requested but no eligible risk has tags) |
+
+<Warning>
+Low-confidence matches always stay `needs_review` — they are never assigned
+automatically, regardless of `auto_apply`.
+</Warning>
+
+---
+
+## List owner recommendations
+
+```http
+GET /risk-assignments?client_org_id={orgId}&status=proposed&limit=100
+```
+
+**Auth:** Bearer
+
+Returns the full owner profile the UI needs (not just `owner_user_id`),
+alternates when the strategy requests them, and a plain-English rationale.
+
+| Query param | Required | Meaning |
+| --- | --- | --- |
+| `client_org_id` | Yes | Organisation scope |
+| `risk_id` | No | Single-risk filter |
+| `status` | No | `proposed` · `assigned` · `needs_review` · `rejected` |
+| `limit` | No | Max rows (default 100) |
+
+### Response `200`
+
+```json
+[
+  {
+    "id": "assignment-uuid",
+    "client_org_id": "org-uuid",
+    "risk_id": "risk-uuid",
+    "risk_title": "Delayed regulatory reporting due to fragmented control ownership",
+    "risk_rating": "High",
+    "assignment_status": "proposed",
+    "recommended_owner": {
+      "user_id": "user-uuid",
+      "name": "Aisha Rahman",
+      "email": "aisha.rahman@example.com",
+      "title": "Head of Compliance",
+      "function": "Compliance",
+      "department": "Risk and Compliance",
+      "region": "UK/EU",
+      "management_level": "L3"
+    },
+    "alternate_owners": [
+      {
+        "user_id": "user-uuid-2",
+        "name": "David Miller",
+        "email": "david.miller@example.com",
+        "title": "Regulatory Reporting Lead",
+        "confidence": 0.78
+      }
+    ],
+    "confidence": 0.89,
+    "matched_on": ["kpi_owner", "function_tag", "region", "management_level"],
+    "rationale": "Recommended because the recommended owner owns the KPI linked to this risk; they lead the Compliance function the risk is tagged to; they cover the relevant operating region; their management level (L3) is appropriate for a High risk.",
+    "hierarchy_snapshot_id": "hierarchy-snapshot-uuid",
+    "auto_applied": false,
+    "created_at": "2026-06-09T11:05:00Z",
+    "updated_at": "2026-06-09T11:05:00Z"
+  }
+]
+```
+
+| HTTP | code |
+| --- | --- |
+| 404 | `CLIENT_ORG_NOT_FOUND` / `RISK_NOT_FOUND` |
+| 422 | `INVALID_STATUS` |
+
+---
+
+## Apply selected owner assignments
+
+```http
+POST /risk-assignments/apply-selected
+```
+
+**Auth:** Bearer
+
+The human approval control point: records ownership on the official register with
+reviewer identity + timestamp.
+
+### Request
+
+```json
+{
+  "client_org_id": "org-uuid",
+  "selected_assignments": [
+    {
+      "risk_id": "risk-uuid",
+      "owner_user_id": "user-uuid",
+      "accountable_user_id": "user-uuid-manager",
+      "assignment_type": "primary_owner",
+      "replace_existing": false,
+      "reviewer_notes": "Accepted recommendation because owner leads Compliance and owns the linked regulatory reporting KPI."
+    }
+  ]
+}
+```
+
+`assignment_type`: `primary_owner` · `accountable_owner` · `delegate` ·
+`alternate_owner`. Only **active** users from the approved hierarchy snapshot are
+assignable. Existing owners are never replaced unless `replace_existing: true`.
+When `accountable_user_id` is omitted, the owner's manager from the hierarchy is
+used where available.
+
+### Response `200`
+
+```json
+{
+  "status": "success",
+  "message": "Selected risk owner assignments applied",
+  "data": {
+    "assigned": [
+      { "risk_id": "risk-uuid", "owner_user_id": "user-uuid", "assignment_status": "assigned" }
+    ],
+    "skipped": [],
+    "needs_review": []
+  }
+}
+```
+
+| HTTP | code |
+| --- | --- |
+| 404 | `RISK_NOT_FOUND` / `OWNER_NOT_FOUND` (also returned for inactive owners) |
+| 409 | `OWNER_ALREADY_ASSIGNED` |
+| 422 | `validation_error` |
+
+---
+
+## Get risk assignment KPIs
+
+```http
+GET /risk-assignments/kpis?client_org_id={orgId}
+```
+
+**Auth:** Bearer
+
+### Response `200`
+
+```json
+{
+  "status": "success",
+  "data": {
+    "client_org_id": "org-uuid",
+    "risk_register_count": 125,
+    "tagging": {
+      "fully_tagged": 96,
+      "partially_tagged": 17,
+      "untagged": 12,
+      "tagging_completion_percentage": 76.8
+    },
+    "assignment": {
+      "assigned": 82,
+      "proposed": 31,
+      "needs_review": 6,
+      "unassigned": 6,
+      "assignment_completion_percentage": 65.6
+    },
+    "high_priority_gaps": {
+      "high_rated_unassigned": 4,
+      "critical_process_untagged": 3,
+      "missing_kpi_mapping": 9
+    },
+    "last_updated_at": "2026-06-09T11:10:00Z"
+  }
+}
+```
+
+Definitions: `high_rated_unassigned` — High/Extreme-rated risks without an owner;
+`critical_process_untagged` — critical catalog processes with **no** risk tagged
+to them (a coverage gap); `missing_kpi_mapping` — risks without a KPI tag.
+Proposed assignments are counted separately from officially assigned owners, and
+completion is calculated against all risks in the register.
+
+---
+
+## Read organisation hierarchy
+
+```http
+GET /organisation-hierarchy/{orgId}?snapshot_id={snapshotId}&include_inactive=false
+```
+
+**Auth:** Bearer
+
+The trusted reference list used by owner matching. Without `snapshot_id`, the
+latest **approved** snapshot is returned (auto-bootstrapped from registered users
+plus catalog function/process owners on first call, `source: auto_bootstrap`).
+
+### Response `200`
+
+```json
+{
+  "status": "success",
+  "data": {
+    "client_org_id": "org-uuid",
+    "hierarchy_snapshot_id": "hierarchy-snapshot-uuid",
+    "snapshot_status": "approved",
+    "users": [
+      {
+        "user_id": "user-uuid",
+        "name": "Aisha Rahman",
+        "email": "aisha.rahman@example.com",
+        "title": "Head of Compliance",
+        "function": "Compliance",
+        "department": "Risk and Compliance",
+        "region": "UK/EU",
+        "management_level": "L3",
+        "manager_user_id": "manager-uuid",
+        "is_active": true,
+        "ownership_roles": ["function_owner", "kpi_owner"],
+        "owned_process_ids": [],
+        "owned_kpi_ids": ["kpi-uuid"]
+      }
+    ]
+  }
+}
+```
+
+| HTTP | code |
+| --- | --- |
+| 401 | `UNAUTHORIZED` |
+| 403 | `FORBIDDEN` |
+| 404 | `CLIENT_ORG_NOT_FOUND` / `HIERARCHY_NOT_FOUND` |
+
+---
+
+## Methodology & sources
+
+Owner matching follows the ISO 31000:2018 definition of a risk owner
+(accountability **and** authority), the IIA Three Lines Model for keeping
+ownership in management with review-gated oversight fallbacks, RACI for the
+assignment-type vocabulary, NIST SP 800-30 / COSO ERM for severity-proportionate
+seniority, and the [MIT AI Risk Repository](https://airisk.mit.edu/navigator#/risks/browse)
+taxonomy for AI-risk routing. Full table:
+[Stage 10 · Domain logic & sources](/flow/10-risk-owner-assignment#domain-logic--sources).

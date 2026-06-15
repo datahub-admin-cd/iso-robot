@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "c5f74daa-904f-4817-9aaf-a1e7dbd344db",
     "name": "ISO-Robot - API Verification",
-    "description": "# ISO Robot API v1\n\n**Base URL:** `{{baseUrl}}` → must be `http://localhost:8000/api/v1`\n\n## Quick start\n1. Run **01 Auth → Login (Analyst)**\n2. Run folders **02 → 08** in order\n3. While jobs run, re-hit **09 Fetch Latest Data** to see DB rows grow\n4. Use **Poll job** requests until `status` = `completed`\n\n## End-to-end flow\n```mermaid\nflowchart TD\n    A[Login] --> B[Upload / list org documents]\n    B --> C[Extract controls - JOB]\n    C --> D[GET controls by orgId]\n    D --> E[Issues from controls - JOB]\n    E --> F[Classify issues - JOB]\n    F --> G[PESTEL / SWOT / TVRA aggregate]\n    G --> H[Risk discovery - JOB]\n    H --> I[Risk scoring - JOB]\n    I --> J[GET risk assessment]\n```\n\n## Authentication\n| Route | Auth |\n|-------|------|\n| `POST /auth/login`, `POST /auth/register`, `GET /health` | **None** |\n| Everything else | `Authorization: Bearer {{token}}` |\n\nLogin saves `token` + `clientOrgId` to collection variables.\n\n## Error format (all endpoints)\n```json\n{ \"detail\": \"Human message\", \"code\": \"ERROR_CODE\" }\n```\n\n| HTTP | code | Meaning |\n|------|------|---------|\n| 401 | UNAUTHORIZED | Missing/invalid Bearer header |\n| 401 | SESSION_INVALID | Expired or bad JWT |\n| 401 | AUTH_FAILED | Wrong username/password |\n| 403 | FORBIDDEN | Org mismatch or not admin |\n| 404 | not_found | Resource missing |\n| 404 | CLIENT_ORG_NOT_FOUND | Bad org id |\n| 409 | DUPLICATE_RECORD | Slug/email taken |\n| 422 | validation_error | Bad request body |\n\n## Job system\nLong work runs in **background jobs**. Pattern:\n\n1. **Start** → POST returns `{ \"id\", \"type\", \"status\": \"pending\", ... }`\n2. **Poll** → `GET /jobs/{jobId}` until `completed` or `failed`\n3. **Fetch data** → GET list endpoints (controls, issues) — rows appear while job runs\n\n| Job type | Started by | What it does |\n|----------|------------|--------------|\n| `extract_controls` | `/control-documents/extract/{orgId}` | Azure DI + LLM → `controls` table |\n| `issues_from_controls` | `/issues/from-controls` | LLM synthesizes issues from controls |\n| `classify_issues` | `/issues/classify` or auto after step above | LLM/heuristic → `issue_classifications` |\n| `risk_discovery` | `/risk-discovery/run` | BM25 + LLM → `candidate_risks` |\n| `score_risks` | `/risk-scoring/run` | LLM + matrix → `risk_assessments` |\n\nJob status values: `pending` → `running` → `completed` | `failed` (see `error` field)\n",
+    "description": "# ISO Robot API v1\n\n**Base URL:** `{{baseUrl}}` → must be `http://localhost:8000/api/v1`\n\n## Quick start\n1. Run **01 Auth → Login (Analyst)**\n2. Run folders **02 → 08** in order\n3. Run **09 Risk Tagging** then **10 Risk Owner Assignment** to tag and assign the register\n4. While jobs run, re-hit **11 Fetch Latest Data** to see DB rows grow\n5. Use **Poll job** requests until `status` = `completed`\n\n## End-to-end flow\n```mermaid\nflowchart TD\n    A[Login] --> B[Upload / list org documents]\n    B --> C[Extract controls - JOB]\n    C --> D[GET controls by orgId]\n    D --> E[Issues from controls - JOB]\n    E --> F[Classify issues - JOB]\n    F --> G[PESTEL / SWOT / TVRA aggregate]\n    G --> H[Risk discovery - JOB]\n    H --> I[Risk scoring - JOB]\n    I --> J[GET risk assessment]\n    J --> K[Upload selected risks]\n    K --> L[Risk tagging - JOB]\n    L --> M[Apply selected tags]\n    M --> N[Owner assignment - JOB]\n    N --> O[Apply selected assignments]\n```\n\n## Authentication\n| Route | Auth |\n|-------|------|\n| `POST /auth/login`, `POST /auth/register`, `GET /health` | **None** |\n| Everything else | `Authorization: Bearer {{token}}` |\n\nLogin saves `token` + `clientOrgId` to collection variables.\n\n## Error format (all endpoints)\n```json\n{ \"detail\": \"Human message\", \"code\": \"ERROR_CODE\" }\n```\n\n| HTTP | code | Meaning |\n|------|------|---------|\n| 401 | UNAUTHORIZED | Missing/invalid Bearer header |\n| 401 | SESSION_INVALID | Expired or bad JWT |\n| 401 | AUTH_FAILED | Wrong username/password |\n| 403 | FORBIDDEN | Org mismatch or not admin |\n| 404 | not_found | Resource missing |\n| 404 | CLIENT_ORG_NOT_FOUND | Bad org id |\n| 409 | DUPLICATE_RECORD | Slug/email taken |\n| 422 | validation_error | Bad request body |\n\n## Job system\nLong work runs in **background jobs**. Pattern:\n\n1. **Start** → POST returns `{ \"id\", \"type\", \"status\": \"pending\", ... }`\n2. **Poll** → `GET /jobs/{jobId}` until `completed` or `failed`\n3. **Fetch data** → GET list endpoints (controls, issues) — rows appear while job runs\n\n| Job type | Started by | What it does |\n|----------|------------|--------------|\n| `extract_controls` | `/control-documents/extract/{orgId}` | Azure DI + LLM → `controls` table |\n| `issues_from_controls` | `/issues/from-controls` | LLM synthesizes issues from controls |\n| `classify_issues` | `/issues/classify` or auto after step above | LLM/heuristic → `issue_classifications` |\n| `risk_discovery` | `/risk-discovery/run` | BM25 + LLM → `candidate_risks` |\n| `score_risks` | `/risk-scoring/run` | LLM + matrix → `risk_assessments` |\n| `risk_tagging` | `/risk-tagging/run` | Catalog matching + LLM → `risk_tags` (Stage 09) |\n| `risk_owner_assignment` | `/risk-assignments/run` | Weighted owner matching → `risk_assignments` (Stage 10) |\n\nJob status values: `pending` → `running` → `completed` | `failed` (see `error` field)\n",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
     "_exporter_id": "25305867"
   },
@@ -25,10 +25,15 @@
               }
             ],
             "url": {
-              "raw": "{{rootUrl}}/health",
+              "raw": "http://157.20.190.175:8000/health",
+              "protocol": "http",
               "host": [
-                "{{rootUrl}}"
+                "157",
+                "20",
+                "190",
+                "175"
               ],
+              "port": "8000",
               "path": [
                 "health"
               ]
@@ -167,7 +172,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\"username\":\"admin@catalytics.local\",\"password\":\"AdminPWD123!\"}",
+              "raw": "{\n    \"username\": \"admin@catalytics.local\",\n    \"password\": \"AdminPWD123!\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -175,16 +180,18 @@
               }
             },
             "url": {
-              "raw": "{{stageURL}}/auth/login",
+              "raw": "{{stageURL}}/api/v1/auth/login",
               "host": [
                 "{{stageURL}}"
               ],
               "path": [
+                "api",
+                "v1",
                 "auth",
                 "login"
               ]
             },
-            "description": "## Purpose\nAdmin login for org creation and cross-org ops.\n\nSame request/response shape as Analyst login.\n\n## Other responses\n401 AUTH_FAILED · 403 disabled · 404 org not found"
+            "description": "## Purpose\n\nAdmin login for org creation and cross-org ops.\n\nSame request/response shape as Analyst login.\n\n## Other responses\n\n401 AUTH_FAILED · 403 disabled · 404 org not found"
           },
           "response": []
         },
@@ -210,11 +217,13 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/auth/me",
+              "raw": "{{stageURL}}/api/v1/auth/me",
               "host": [
-                "{{baseUrl}}"
+                "{{stageURL}}"
               ],
               "path": [
+                "api",
+                "v1",
                 "auth",
                 "me"
               ]
@@ -277,12 +286,12 @@
             "method": "POST",
             "header": [
               {
-                "key": "Authorization",
-                "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJmMjhiYWFiZi03ZDk4LTQ0MmEtYTIwMi04YTUyMDZjZDc2NWIiLCJvcmciOiI2ODZmNmM3MS03N2YzLTQ1ZmMtODEyYi1kNmE2YzA5ZTc2YjkiLCJyb2xlIjoiYWRtaW4iLCJpYXQiOjE3ODA4OTE2MzEsImV4cCI6MTc4MDg5MzQzMX0.rWPJbWueFjdb65BhDt9TFULN8OQciEUZw6UdGPB9BKI"
-              },
-              {
                 "key": "Accept",
                 "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJmNjlkNGMyNC03NTVkLTRiOTMtYTZlZC1lNmE4NWVmMTk5YzkiLCJvcmciOiIyMDU3NTFkNS1iZDFlLTQ5M2UtYjgyZC02MGJlZGY0Zjk2NjUiLCJyb2xlIjoiYWRtaW4iLCJpYXQiOjE3ODEwMTE3NzEsImV4cCI6MTc4MTAxMzU3MX0.v69TAPniZ7HmNEPvIdXafZkvT9EwomMlQsh0vnRPJnM"
               }
             ],
             "body": {
@@ -291,7 +300,7 @@
                 {
                   "type": "text",
                   "key": "client_org_id",
-                  "value": "686f6c71-77f3-45fc-812b-d6a6c09e76b9"
+                  "value": "eb2b5baa-0e92-4ef1-aa43-918473c46720"
                 },
                 {
                   "type": "text",
@@ -306,14 +315,14 @@
                 {
                   "type": "file",
                   "key": "file",
-                  "src": "/Users/devils/Downloads/FINAL GSDR 2023-Digital -110923_1.pdf"
+                  "src": "/Users/devils/Downloads/ISOROBOT_REFERENCE_LIBRARY_Folders/ISOROBOT_REFERENCE_LIBRARY/Qatar Olympic Committee (QOC) policy document/QOC Policies.pdf"
                 }
               ]
             },
             "url": {
-              "raw": "{{baseUrl}}/api/v1/control-documents/upload",
+              "raw": "{{stageURL}}/api/v1/control-documents/upload",
               "host": [
-                "{{baseUrl}}"
+                "{{stageURL}}"
               ],
               "path": [
                 "api",
@@ -350,9 +359,9 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/control-documents/{{clientOrgId}}",
+              "raw": "{{stageURL}}/api/v1/control-documents/{{clientOrgId}}",
               "host": [
-                "{{baseUrl}}"
+                "{{stageURL}}"
               ],
               "path": [
                 "api",
@@ -416,7 +425,7 @@
                 "upload"
               ]
             },
-            "description": "## Purpose\nMultipart upload of PDF/DOCX/XLSX/TXT to org folder. Supports **multiple files in one request** — add several form fields all named `file` (same `document_type` / `document_category` apply to each).\n\n## Form fields\n`client_org_id`, `document_type`, `document_category`, `file` (repeat for multiple files)\n\n## Response 200\nSingle file: ApiResponse with ControlDocumentResponse in `data`.\nMultiple files: `data.documents` array + `data.uploaded_count`; partial failures in `errors`."
+            "description": "## Purpose\nMultipart upload of PDF/DOCX/XLSX/TXT to org folder.\n\n## Form fields\n`client_org_id`, `document_type`, `file`\n\n## Response 200\nApiResponse with new ControlDocumentResponse in `data`.\n400 FILE_UPLOAD_FAILED · 404 CLIENT_ORG_NOT_FOUND"
           },
           "response": []
         },
@@ -442,9 +451,9 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/control-documents/stats/{{clientOrgId}}",
+              "raw": "{{stageURL}}/api/v1/control-documents/stats/{{clientOrgId}}",
               "host": [
-                "{{baseUrl}}"
+                "{{stageURL}}"
               ],
               "path": [
                 "api",
@@ -480,9 +489,9 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/orgs",
+              "raw": "{{stageURL}}/api/v1/orgs",
               "host": [
-                "{{baseUrl}}"
+                "{{stageURL}}"
               ],
               "path": [
                 "api",
@@ -522,7 +531,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n    \"client_org_id\": \"{{clientOrgId}}\",\n    \"business_demography\": {\n        \"industry\": \"Oil & Gas\"\n    }\n}",
+              "raw": "{\n    \"client_org_id\": \"{{clientOrgId}}\",\n    \"business_demography\": {\n        \"industry\": \"Sports Governance\",\n        \"sub_industry\": \"Olympic movement, athlete development, major sports event hosting and coordination\",\n        \"employee_count\": \"610\",\n        \"annual_revenue\": null,\n        \"headquarters_country\": \"Qatar \",\n        \"headquarters_city\": \"Doha\",\n        \"ownership_type\": \"Public Sports Institution\",\n        \"regulatory_region\": \"GCC\",\n        \"website\": \"www.olympic.qa\",\n        \"functions\": [\n            \"Sport sector, athlete services, federation support\",\n            \"Sport events and major-event coordination\",\n            \"Marketing, communications and international cooperation\",\n            \"Support services: HR, finance, procurement, logistics, IT\",\n            \"Strategy, sustainability, legal, audit, executive offices\"\n        ],\n        \"locations\": [],\n        \"processes\": [],\n        \"regulatory_frameworks\": [],\n        \"notes\": null\n    }\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -530,9 +539,9 @@
               }
             },
             "url": {
-              "raw": "{{baseUrl}}/api/v1/business-demography/update",
+              "raw": "{{stageURL}}/api/v1/business-demography/update",
               "host": [
-                "{{baseUrl}}"
+                "{{stageURL}}"
               ],
               "path": [
                 "api",
@@ -567,9 +576,9 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/business-demography/{{clientOrgId}}",
+              "raw": "{{stageURL}}/api/v1/business-demography/{{clientOrgId}}",
               "host": [
-                "{{baseUrl}}"
+                "{{stageURL}}"
               ],
               "path": [
                 "api",
@@ -637,9 +646,9 @@
               }
             },
             "url": {
-              "raw": "{{baseUrl}}/api/v1/control-documents/extract/{{clientOrgId}}",
+              "raw": "{{stageURL}}/api/v1/control-documents/extract/{{clientOrgId}}",
               "host": [
-                "{{baseUrl}}"
+                "{{stageURL}}"
               ],
               "path": [
                 "api",
@@ -649,7 +658,7 @@
                 "{{clientOrgId}}"
               ]
             },
-            "description": "## Purpose\nExtract controls from all org PDFs.\n\n### Job behavior\n- Returns immediately with `status: pending`\n- Worker runs in background via FastAPI BackgroundTasks\n- Poll **`GET /jobs/{{jobId}}`** until done\n- Re-fetch list endpoints in **09 Fetch Latest Data** while running\n\n## Job type\n`extract_controls`\n\n## Response 200\n```json\n{\n  \"status\": \"accepted\",\n  \"data\": { \"job_id\": \"uuid\", \"documents_queued\": 2, \"folder\": \"...\", \"processing_status\": \"in_progress\" }\n}\n```\n400 VALIDATION_ERROR (no docs) · 404 CLIENT_ORG_NOT_FOUND\n\n## Then\nPoll job → **List controls** (09 or 03)"
+            "description": "## Purpose\n\nExtract controls from all org PDFs.\n\n### Job behavior\n\n- Returns immediately with `status: pending`\n    \n- Worker runs in background via FastAPI BackgroundTasks\n    \n- Poll **`GET /jobs/{{jobId}}`** until done\n    \n- Re-fetch list endpoints in **09 Fetch Latest Data** while running\n    \n\n## Job type\n\n`extract_controls`\n\n## Response 200\n\n``` json\n{\n  \"status\": \"accepted\",\n  \"data\": { \"job_id\": \"uuid\", \"documents_queued\": 2, \"folder\": \"...\", \"processing_status\": \"in_progress\" }\n}\n\n ```\n\n400 VALIDATION_ERROR (no docs) · 404 CLIENT_ORG_NOT_FOUND\n\n## Then\n\nPoll job → **List controls** (09 or 03)"
           },
           "response": []
         },
@@ -699,7 +708,7 @@
                 "{{jobId}}"
               ]
             },
-            "description": "## Purpose\nCheck background job progress.\n\n## Response 200\n```json\n{\n  \"id\": \"uuid\",\n  \"type\": \"extract_controls\",\n  \"status\": \"pending|running|completed|failed\",\n  \"payload\": {},\n  \"error\": null,\n  \"created_at\": \"...\",\n  \"updated_at\": \"...\"\n}\n```\n404 not_found\n\nRepeat until `completed` or `failed`."
+            "description": "## Purpose\n\nCheck background job progress.\n\n## Response 200\n\n``` json\n{\n  \"id\": \"uuid\",\n  \"type\": \"extract_controls\",\n  \"status\": \"pending|running|completed|failed\",\n  \"payload\": {},\n  \"error\": null,\n  \"created_at\": \"...\",\n  \"updated_at\": \"...\"\n}\n\n ```\n\n404 not_found\n\nRepeat until `completed` or `failed`."
           },
           "response": []
         },
@@ -738,9 +747,9 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/controls?client_org_id={{clientOrgId}}&limit=500",
+              "raw": "{{stageURL}}/api/v1/controls?client_org_id={{clientOrgId}}&limit=500",
               "host": [
-                "{{baseUrl}}"
+                "{{stageURL}}"
               ],
               "path": [
                 "api",
@@ -809,7 +818,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n    \"replace_existing\": true,\n    \"classify_after\": true\n}",
+              "raw": "{\n    \"replace_existing\": false,\n    \"classify_after\": true\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -817,16 +826,16 @@
               }
             },
             "url": {
-              "raw": "{{baseUrl}}/api/v1/issues/from-controls/686f6c71-77f3-45fc-812b-d6a6c09e76b9",
+              "raw": "{{stageURL}}/api/v1/issues/from-controls/{{clientOrgId}}",
               "host": [
-                "{{baseUrl}}"
+                "{{stageURL}}"
               ],
               "path": [
                 "api",
                 "v1",
                 "issues",
                 "from-controls",
-                "686f6c71-77f3-45fc-812b-d6a6c09e76b9"
+                "{{clientOrgId}}"
               ]
             },
             "description": "## Purpose\nLLM synthesizes issues from extracted controls.\n\n### Job behavior\n- Returns immediately with `status: pending`\n- Worker runs in background via FastAPI BackgroundTasks\n- Poll **`GET /jobs/{{jobId}}`** until done\n- Re-fetch list endpoints in **09 Fetch Latest Data** while running\n\n## Job type\n`issues_from_controls`\n\n## Request\n```json\n{\n  \"document_id\": \"uuid\",\n  \"replace_existing\": true,\n  \"classify_after\": true,\n  \"sector_hint\": null,\n  \"region_hint\": null\n}\n```\n\nIf `classify_after: true`, spawns separate `classify_issues` job.\n\n## Response 200\nJobResponse"
@@ -868,9 +877,9 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/jobs/{{jobId}}",
+              "raw": "{{stageURL}}/api/v1/jobs/{{jobId}}",
               "host": [
-                "{{baseUrl}}"
+                "{{stageURL}}"
               ],
               "path": [
                 "api",
@@ -918,9 +927,9 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/issues?client_org_id={{clientOrgId}}&include_classification=true&limit=500",
+              "raw": "{{stageURL}}/api/v1/issues?client_org_id={{clientOrgId}}&include_classification=true&limit=500",
               "host": [
-                "{{baseUrl}}"
+                "{{stageURL}}"
               ],
               "path": [
                 "api",
@@ -968,9 +977,9 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/issues/{{issueId}}",
+              "raw": "{{stageURL}}/api/v1/issues/{{issueId}}",
               "host": [
-                "{{baseUrl}}"
+                "{{stageURL}}"
               ],
               "path": [
                 "api",
@@ -1032,9 +1041,9 @@
               }
             },
             "url": {
-              "raw": "{{baseUrl}}/api/v1/issues/classify",
+              "raw": "{{stageURL}}/api/v1/issues/classify",
               "host": [
-                "{{baseUrl}}"
+                "{{stageURL}}"
               ],
               "path": [
                 "api",
@@ -1053,10 +1062,12 @@
             {
               "listen": "test",
               "script": {
-                "type": "text/javascript",
                 "exec": [
                   "console.log('status:', pm.response.json().status);"
-                ]
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
               }
             }
           ],
@@ -1080,11 +1091,13 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/jobs/{{jobId}}",
+              "raw": "{{stageURL}}/api/v1/jobs/{{jobId}}",
               "host": [
-                "{{baseUrl}}"
+                "{{stageURL}}"
               ],
               "path": [
+                "api",
+                "v1",
                 "jobs",
                 "{{jobId}}"
               ]
@@ -1115,9 +1128,9 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/api/v1/issues/{{issueId}}/classification",
+              "raw": "{{stageURL}}/api/v1/issues/{{issueId}}/classification",
               "host": [
-                "{{baseUrl}}"
+                "{{stageURL}}"
               ],
               "path": [
                 "api",
@@ -1304,11 +1317,13 @@
               }
             },
             "url": {
-              "raw": "{{baseUrl}}/risk-library/seed-from-poc",
+              "raw": "{{stageURL}}/api/v1/risk-library/seed-from-poc",
               "host": [
-                "{{baseUrl}}"
+                "{{stageURL}}"
               ],
               "path": [
+                "api",
+                "v1",
                 "risk-library",
                 "seed-from-poc"
               ]
@@ -1339,11 +1354,13 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/risk-library?limit=50",
+              "raw": "{{stageURL}}/api/v1/risk-library?limit=50",
               "host": [
-                "{{baseUrl}}"
+                "{{stageURL}}"
               ],
               "path": [
+                "api",
+                "v1",
                 "risk-library"
               ],
               "query": [
@@ -1423,10 +1440,12 @@
             {
               "listen": "test",
               "script": {
-                "type": "text/javascript",
                 "exec": [
                   "console.log('status:', pm.response.json().status);"
-                ]
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
               }
             }
           ],
@@ -1450,11 +1469,13 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/jobs/{{jobId}}",
+              "raw": "{{baseUrl}}/api/v1/jobs/{{jobId}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
+                "api",
+                "v1",
                 "jobs",
                 "{{jobId}}"
               ]
@@ -1525,11 +1546,13 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/discovery-export",
+              "raw": "{{baseUrl}}/api/v1/discovery-export",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
+                "api",
+                "v1",
                 "discovery-export"
               ]
             },
@@ -1549,10 +1572,12 @@
             {
               "listen": "test",
               "script": {
-                "type": "text/javascript",
                 "exec": [
                   "const b=pm.response.json(); const id=b.id||(b.data&&b.data.job_id); if(id) pm.collectionVariables.set('jobId',id);"
-                ]
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
               }
             }
           ],
@@ -1582,7 +1607,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\"issue_ids\":[\"{{issueId}}\"]}",
+              "raw": "{\n    \"issue_ids\": [\n        \"{{issueId}}\"\n    ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1590,11 +1615,13 @@
               }
             },
             "url": {
-              "raw": "{{baseUrl}}/risk-scoring/run",
+              "raw": "{{baseUrl}}/api/v1/risk-scoring/run",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
+                "api",
+                "v1",
                 "risk-scoring",
                 "run"
               ]
@@ -1609,10 +1636,12 @@
             {
               "listen": "test",
               "script": {
-                "type": "text/javascript",
                 "exec": [
                   "console.log('status:', pm.response.json().status);"
-                ]
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
               }
             }
           ],
@@ -1636,11 +1665,13 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/jobs/{{jobId}}",
+              "raw": "{{baseUrl}}/api/v1/jobs/{{jobId}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
+                "api",
+                "v1",
                 "jobs",
                 "{{jobId}}"
               ]
@@ -1671,11 +1702,13 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/issues/{{issueId}}/risk-assessment",
+              "raw": "{{baseUrl}}/api/v1/issues/{{issueId}}/risk-assessment",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
+                "api",
+                "v1",
                 "issues",
                 "{{issueId}}",
                 "risk-assessment"
@@ -1719,7 +1752,7 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\"client_org_id\":\"{{clientOrgId}}\",\"selected_risks\":[{\"issue_id\":\"{{issueId}}\",\"risk_title\":\"Test\",\"risk_rating\":\"Medium\"}]}",
+              "raw": "{\n    \"client_org_id\": \"{{clientOrgId}}\",\n    \"selected_risks\": [\n        {\n            \"issue_id\": \"{{issueId}}\",\n            \"risk_title\": \"Test\",\n            \"risk_rating\": \"Medium\"\n        }\n    ]\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -1727,11 +1760,13 @@
               }
             },
             "url": {
-              "raw": "{{baseUrl}}/risks/upload-selected",
+              "raw": "{{baseUrl}}/api/v1/risks/upload-selected",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
+                "api",
+                "v1",
                 "risks",
                 "upload-selected"
               ]
@@ -1762,11 +1797,13 @@
               }
             ],
             "url": {
-              "raw": "{{baseUrl}}/risks/{{clientOrgId}}",
+              "raw": "{{baseUrl}}/api/v1/risks/{{clientOrgId}}",
               "host": [
                 "{{baseUrl}}"
               ],
               "path": [
+                "api",
+                "v1",
                 "risks",
                 "{{clientOrgId}}"
               ]
@@ -1779,7 +1816,795 @@
       "description": "**Step 8.** User-selected risk upload to portal."
     },
     {
-      "name": "09 Fetch Latest Data (re-run while jobs run)",
+      "name": "09 Risk Tagging (Stage 09)",
+      "description": "Stage 09 — enrich the risk register with business metadata (process, function, department, KPI, region, control family).\n\nFlow: **List untagged → Run tagging (JOB) → Poll job → List recommendations → Apply selected → KPIs**.\n\nRecommendations carry confidence, rationale and evidence; a human reviewer applies them before they become official (human-in-the-loop). Catalogs are bootstrapped from Business Demography on first run. Control-family taxonomy follows ISO/IEC 27001:2022 Annex A + an AI & Model Governance family aligned to the MIT AI Risk Repository (https://airisk.mit.edu/navigator#/risks/browse).",
+      "item": [
+        {
+          "name": "List untagged risks",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/risks/untagged?client_org_id={{clientOrgId}}&limit=100&include_partial=true",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "risks",
+                "untagged"
+              ],
+              "query": [
+                {
+                  "key": "client_org_id",
+                  "value": "{{clientOrgId}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "100"
+                },
+                {
+                  "key": "include_partial",
+                  "value": "true"
+                }
+              ]
+            },
+            "description": "## Purpose\nWork queue for the tagging stage: risks with no or incomplete required tags (`process`, `function`, `kpi`).\n\n## Response 200\nArray of risks with `tag_status` (`untagged` | `partially_tagged`) and `missing_dimensions`.\n\n## Errors\n401 UNAUTHORIZED · 403 FORBIDDEN · 404 CLIENT_ORG_NOT_FOUND · 422 validation_error\n\nRead-only: never mutates data."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const rows = pm.response.json();",
+                  "if (rows.length) pm.collectionVariables.set('riskId', rows[0].id);"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ]
+        },
+        {
+          "name": "Run risk tagging (JOB)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/risk-tagging/run",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "risk-tagging",
+                "run"
+              ]
+            },
+            "description": "## Purpose\nStarts the `risk_tagging` background job. Matches each eligible risk against the organisation catalogs (deterministic lexical matching + optional LLM refinement with fallback) and stores recommendations with confidence, rationale and evidence.\n\n## Response 202\n```json\n{ \"status\": \"accepted\", \"data\": { \"job_id\": \"…\", \"type\": \"risk_tagging\", \"risks_queued\": 42, \"processing_status\": \"in_progress\" } }\n```\n\nPoll `GET /jobs/{{jobId}}` until `completed`.\n\n## Errors\n400 NO_ELIGIBLE_RISKS · 404 CATALOG_NOT_FOUND · 409 JOB_ALREADY_RUNNING · 422 INVALID_TAG_DIMENSION\n\nAuto-apply is **off by default**; high-confidence auto-apply only when `auto_apply: true` and confidence ≥ `confidence_threshold`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"client_org_id\": \"{{clientOrgId}}\",\n    \"only_untagged\": true,\n    \"overwrite_existing\": false,\n    \"tag_dimensions\": [\n        \"process\",\n        \"function\",\n        \"department\",\n        \"kpi\",\n        \"region\",\n        \"control_family\"\n    ],\n    \"auto_apply\": false,\n    \"confidence_threshold\": 0.75,\n    \"review_required_below_confidence\": 0.75\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('202', () => pm.response.to.have.status(202));",
+                  "const d = pm.response.json().data || {};",
+                  "if (d.job_id) pm.collectionVariables.set('jobId', d.job_id);"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ]
+        },
+        {
+          "name": "Poll tagging job",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/jobs/{{jobId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "jobs",
+                "{{jobId}}"
+              ]
+            },
+            "description": "Poll until `status` = `completed` | `failed`. `payload.progress` shows live counters: `risks_total`, `risks_processed`, `tags_proposed`, `tags_applied`, `needs_review`."
+          },
+          "response": []
+        },
+        {
+          "name": "List risk tag recommendations",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/risk-tags?client_org_id={{clientOrgId}}&limit=100",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "risk-tags"
+              ],
+              "query": [
+                {
+                  "key": "client_org_id",
+                  "value": "{{clientOrgId}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "100"
+                },
+                {
+                  "key": "status",
+                  "value": "proposed",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "## Purpose\nReview screen data: proposed/applied/needs_review/rejected tags with per-tag confidence, rationale and evidence (`risk_title`, `linked_issue`, `control_text`, …).\n\n**Run this immediately before \"Apply selected risk tags\".** The Tests script reads the catalog ids from the first actionable recommendation and stores them in `applySelectedTagsPayload`, which the Apply request then sends — so you never paste UUIDs by hand.\n\nOptional filters: `risk_id`, `status` (enable the disabled `status` query param to filter by `proposed` / `applied` / `needs_review` / `rejected`).\n\n## Errors\n404 RISK_NOT_FOUND · 422 INVALID_STATUS"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const rows = pm.response.json();",
+                  "if (!Array.isArray(rows) || !rows.length) {",
+                  "    console.warn('No tag recommendations — check clientOrgId and run the tagging job first');",
+                  "    return;",
+                  "}",
+                  "",
+                  "const pick = rows.find(r =>",
+                  "    ['proposed', 'needs_review'].includes(r.tag_status) &&",
+                  "    (r.process_tags?.length || r.function_tags?.length || r.kpi_tags?.length || r.region_tags?.length)",
+                  ") || rows[0];",
+                  "",
+                  "const ids = (tags, key) => (tags || []).map(t => t[key]).filter(Boolean);",
+                  "",
+                  "const selected = {",
+                  "    risk_id: pick.risk_id,",
+                  "    process_ids: ids(pick.process_tags, 'process_id'),",
+                  "    function_ids: ids(pick.function_tags, 'function_id'),",
+                  "    department_ids: ids(pick.department_tags, 'department_id'),",
+                  "    kpi_ids: ids(pick.kpi_tags, 'kpi_id'),",
+                  "    region_ids: ids(pick.region_tags, 'region_id'),",
+                  "    control_family_ids: ids(pick.control_family_tags, 'control_family_id'),",
+                  "    reviewer_notes: 'Accepted system recommendation.'",
+                  "};",
+                  "",
+                  "pm.collectionVariables.set('clientOrgId', pick.client_org_id);",
+                  "pm.collectionVariables.set('riskId', pick.risk_id);",
+                  "pm.collectionVariables.set('applySelectedTagsPayload', JSON.stringify({",
+                  "    client_org_id: pick.client_org_id,",
+                  "    selected_tags: [selected]",
+                  "}, null, 4));",
+                  "",
+                  "console.log('applySelectedTagsPayload ready — risk', pick.risk_id, 'status', pick.tag_status);"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ]
+        },
+        {
+          "name": "Apply selected risk tags",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/risk-tagging/apply-selected",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "risk-tagging",
+                "apply-selected"
+              ]
+            },
+            "description": "## Purpose\nHuman-in-the-loop control point: writes analyst-approved tags to the official risk register and stores reviewer identity + timestamp.\n\n**Run \"List risk tag recommendations\" immediately before this request.** The Pre-request Script replaces the body with `applySelectedTagsPayload` (real catalog ids pulled from the recommendation), so the placeholder body below is only a fallback for manual edits.\n\n`replace_existing: true` (per risk) replaces a dimension instead of merging.\n\n## Response 200\n`data.updated` / `data.skipped` / `data.needs_review`.\n\n## Errors\n404 RISK_NOT_FOUND · 404 TAG_REFERENCE_NOT_FOUND · 409 TAG_ALREADY_APPLIED",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"client_org_id\": \"{{clientOrgId}}\",\n    \"selected_tags\": [\n        {\n            \"risk_id\": \"{{riskId}}\",\n            \"process_ids\": [],\n            \"function_ids\": [],\n            \"department_ids\": [],\n            \"kpi_ids\": [],\n            \"region_ids\": [],\n            \"control_family_ids\": [],\n            \"reviewer_notes\": \"Accepted system recommendation.\"\n        }\n    ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "const payload = pm.collectionVariables.get('applySelectedTagsPayload');",
+                  "if (!payload) {",
+                  "    throw new Error('Run \"List risk tag recommendations\" first — it builds applySelectedTagsPayload');",
+                  "}",
+                  "let parsed;",
+                  "try {",
+                  "    parsed = JSON.parse(payload);",
+                  "} catch (e) {",
+                  "    throw new Error('applySelectedTagsPayload is not valid JSON — re-run List risk tag recommendations');",
+                  "}",
+                  "const item = (parsed.selected_tags || [])[0] || {};",
+                  "if (!item.risk_id) {",
+                  "    throw new Error('No risk_id in applySelectedTagsPayload — re-run List risk tag recommendations');",
+                  "}",
+                  "const totalIds = ['process_ids','function_ids','department_ids','kpi_ids','region_ids','control_family_ids']",
+                  "    .reduce((n, k) => n + ((item[k] || []).length), 0);",
+                  "if (totalIds === 0) {",
+                  "    console.warn('No catalog ids found for risk ' + item.risk_id + ' — the recommendation had no tags to apply');",
+                  "}",
+                  "pm.request.body.update({ mode: 'raw', raw: payload, options: { raw: { language: 'json' } } });"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const ok = [200, 201].includes(pm.response.code);",
+                  "pm.test('applied or already-applied', () => pm.expect([200, 201, 409]).to.include(pm.response.code));",
+                  "const body = pm.response.json();",
+                  "if (ok) {",
+                  "    const d = body.data || {};",
+                  "    console.log('updated:', JSON.stringify(d.updated || []));",
+                  "    console.log('skipped:', JSON.stringify(d.skipped || []));",
+                  "} else if (pm.response.code === 409) {",
+                  "    console.log('Already applied — this risk already has these tags (expected for re-runs).');",
+                  "} else {",
+                  "    console.warn('Apply failed:', JSON.stringify(body));",
+                  "}"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ]
+        },
+        {
+          "name": "Risk tagging KPIs",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/risk-tagging/kpis?client_org_id={{clientOrgId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "risk-tagging",
+                "kpis"
+              ],
+              "query": [
+                {
+                  "key": "client_org_id",
+                  "value": "{{clientOrgId}}"
+                }
+              ]
+            },
+            "description": "## Purpose\nTagging-health dashboard: `fully_tagged`, `partially_tagged`, `untagged`, `needs_review`, `tagging_completion_percentage`, and `missing_dimensions` per dimension (process/function/kpi/region). Completion is computed against required dimensions."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "10 Risk Owner Assignment (Stage 10)",
+      "description": "Stage 10 — recommend and assign accountable owners using risk tags + the organisation hierarchy snapshot.\n\nFlow: **List unassigned → Read hierarchy → Run assignment (JOB) → Poll job → List recommendations → Apply selected → KPIs**.\n\nOwner matching is a transparent weighted model (KPI owner 0.35, process owner 0.30, function 0.20, department 0.10, region 0.10, management-level fit 0.05) per ISO 31000 risk-ownership and the IIA Three Lines Model. Low-confidence matches stay `needs_review`.",
+      "item": [
+        {
+          "name": "List unassigned risks",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/risks/unassigned?client_org_id={{clientOrgId}}&limit=100&include_partially_assigned=true",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "risks",
+                "unassigned"
+              ],
+              "query": [
+                {
+                  "key": "client_org_id",
+                  "value": "{{clientOrgId}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "100"
+                },
+                {
+                  "key": "include_partially_assigned",
+                  "value": "true"
+                }
+              ]
+            },
+            "description": "## Purpose\nWork queue for owner assignment: risks with `owner_user_id = null` (plus partially assigned ones when `include_partially_assigned=true`).\n\nRead-only: never assigns owners."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const rows = pm.response.json();",
+                  "if (rows.length) pm.collectionVariables.set('riskId', rows[0].id);"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ]
+        },
+        {
+          "name": "Read organisation hierarchy",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/organisation-hierarchy/{{clientOrgId}}?include_inactive=false",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "organisation-hierarchy",
+                "{{clientOrgId}}"
+              ],
+              "query": [
+                {
+                  "key": "include_inactive",
+                  "value": "false"
+                }
+              ]
+            },
+            "description": "## Purpose\nTrusted reference list for owner matching: users with title, function, department, region, management level, reporting line and ownership metadata (`function_owner`, `process_owner`, `kpi_owner`, `risk_admin`).\n\nUses the latest **approved** snapshot (auto-bootstrapped from registered users + catalog owners on first call). Pass `snapshot_id` to read a specific snapshot.\n\n## Errors\n404 CLIENT_ORG_NOT_FOUND · 404 HIERARCHY_NOT_FOUND"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const d = pm.response.json().data || {};",
+                  "pm.collectionVariables.set('hierarchySnapshotId', d.hierarchy_snapshot_id);",
+                  "if ((d.users || []).length) pm.collectionVariables.set('ownerUserId', d.users[0].user_id);"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ]
+        },
+        {
+          "name": "Run owner assignment (JOB)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/risk-assignments/run",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "risk-assignments",
+                "run"
+              ]
+            },
+            "description": "## Purpose\nStarts the `risk_owner_assignment` background job. Scores every active hierarchy user per risk using tagged context and proposes the best owner plus up to two alternates with confidence, `matched_on`, and plain-English rationale.\n\n## Response 202\n`data.job_id`, `risks_queued`, `processing_status`.\n\n## Errors\n400 NO_UNASSIGNED_RISKS · 404 HIERARCHY_NOT_FOUND · 409 JOB_ALREADY_RUNNING · 422 validation_error · 424 RISK_TAGGING_REQUIRED\n\nInactive users are ignored unless `include_inactive_users: true`. Low-confidence matches are kept as `needs_review`, never auto-assigned.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"client_org_id\": \"{{clientOrgId}}\",\n    \"only_unassigned\": true,\n    \"use_tagging_context\": true,\n    \"hierarchy_source\": {\n        \"hierarchy_snapshot_id\": \"{{hierarchySnapshotId}}\",\n        \"include_inactive_users\": false\n    },\n    \"assignment_strategy\": \"best_owner_with_alternates\",\n    \"auto_apply\": false,\n    \"confidence_threshold\": 0.8,\n    \"fallback_owner_role\": \"risk_admin\",\n    \"review_required_below_confidence\": 0.8\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('202', () => pm.response.to.have.status(202));",
+                  "const d = pm.response.json().data || {};",
+                  "if (d.job_id) pm.collectionVariables.set('jobId', d.job_id);"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ]
+        },
+        {
+          "name": "Poll assignment job",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/jobs/{{jobId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "jobs",
+                "{{jobId}}"
+              ]
+            },
+            "description": "Poll until `status` = `completed` | `failed`. `payload.progress` counters: `risks_total`, `risks_processed`, `owners_proposed`, `auto_assigned`, `needs_review`, `no_owner_found`."
+          },
+          "response": []
+        },
+        {
+          "name": "List owner recommendations",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/risk-assignments?client_org_id={{clientOrgId}}&status=proposed&limit=100",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "risk-assignments"
+              ],
+              "query": [
+                {
+                  "key": "client_org_id",
+                  "value": "{{clientOrgId}}"
+                },
+                {
+                  "key": "status",
+                  "value": "proposed"
+                },
+                {
+                  "key": "limit",
+                  "value": "100"
+                }
+              ]
+            },
+            "description": "## Purpose\nReview screen data: recommended owner (full attributes, not just the id), alternates, confidence, `matched_on` evidence, and rationale.\n\nOptional filters: `risk_id`, `status` (`proposed` | `assigned` | `needs_review` | `rejected`).\n\n## Errors\n404 RISK_NOT_FOUND · 422 INVALID_STATUS"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('200', () => pm.response.to.have.status(200));",
+                  "const rows = pm.response.json();",
+                  "const r = rows.find(x => x.recommended_owner);",
+                  "if (r) { pm.collectionVariables.set('riskId', r.risk_id); pm.collectionVariables.set('ownerUserId', r.recommended_owner.user_id); }"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ]
+        },
+        {
+          "name": "Apply selected assignments",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/risk-assignments/apply-selected",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "risk-assignments",
+                "apply-selected"
+              ]
+            },
+            "description": "## Purpose\nHuman approval control point: records the accountable owner on the official risk register with reviewer identity + timestamp.\n\nOptional: `accountable_user_id`, `assignment_type` (`primary_owner` | `accountable_owner` | `delegate` | `alternate_owner`), `replace_existing: true` to replace an existing owner.\n\n## Response 200\n`data.assigned` / `data.skipped` / `data.needs_review`.\n\n## Errors\n404 RISK_NOT_FOUND · 404 OWNER_NOT_FOUND · 409 OWNER_ALREADY_ASSIGNED",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"client_org_id\": \"{{clientOrgId}}\",\n    \"selected_assignments\": [\n        {\n            \"risk_id\": \"{{riskId}}\",\n            \"owner_user_id\": \"{{ownerUserId}}\",\n            \"assignment_type\": \"primary_owner\",\n            \"reviewer_notes\": \"Accepted recommendation.\"\n        }\n    ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Risk assignment KPIs",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/risk-assignments/kpis?client_org_id={{clientOrgId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "risk-assignments",
+                "kpis"
+              ],
+              "query": [
+                {
+                  "key": "client_org_id",
+                  "value": "{{clientOrgId}}"
+                }
+              ]
+            },
+            "description": "## Purpose\nOwnership-coverage dashboard: tagging block, assignment block (`assigned`/`proposed`/`needs_review`/`unassigned`, completion %), and `high_priority_gaps` (`high_rated_unassigned`, `critical_process_untagged`, `missing_kpi_mapping`). Proposed assignments are counted separately from official owners."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "11 Fetch Latest Data (re-run while jobs run)",
       "item": [
         {
           "name": "Controls",
@@ -2815,6 +3640,22 @@
     },
     {
       "key": "jobId",
+      "value": ""
+    },
+    {
+      "key": "riskId",
+      "value": ""
+    },
+    {
+      "key": "hierarchySnapshotId",
+      "value": ""
+    },
+    {
+      "key": "ownerUserId",
+      "value": ""
+    },
+    {
+      "key": "applySelectedTagsPayload",
       "value": ""
     }
   ]

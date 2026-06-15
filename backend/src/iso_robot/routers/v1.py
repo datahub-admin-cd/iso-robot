@@ -15,6 +15,7 @@ from iso_robot.handlers import (
     system_hints,
 )
 from iso_robot.handlers import auth, org, controls_org
+from iso_robot.handlers import risk_assignment, risk_tagging
 
 router = APIRouter()
 
@@ -102,4 +103,20 @@ router.add_api_route("/control-documents/extract/{client_org_id}", controls_org.
 
 # Risk Upload (API 10)
 router.add_api_route("/risks/upload-selected", org.upload_risks, methods=["POST"], tags=["risks"])
+
+# ── Stage 09 — Risk Tagging ───────────────────────────────────────────────────
+router.add_api_route("/risks/untagged", risk_tagging.list_untagged_risks, methods=["GET"], tags=["risk-tagging"])
+router.add_api_route("/risk-tagging/run", risk_tagging.run_risk_tagging, methods=["POST"], status_code=202, tags=["risk-tagging"])
+router.add_api_route("/risk-tags", risk_tagging.list_risk_tags, methods=["GET"], tags=["risk-tagging"])
+router.add_api_route("/risk-tagging/apply-selected", risk_tagging.apply_selected_tags, methods=["POST"], tags=["risk-tagging"])
+router.add_api_route("/risk-tagging/kpis", risk_tagging.risk_tagging_kpis, methods=["GET"], tags=["risk-tagging"])
+
+# ── Stage 10 — Risk Owner Assignment ──────────────────────────────────────────
+router.add_api_route("/risks/unassigned", risk_assignment.list_unassigned_risks, methods=["GET"], tags=["risk-assignment"])
+router.add_api_route("/risk-assignments/run", risk_assignment.run_risk_assignment, methods=["POST"], status_code=202, tags=["risk-assignment"])
+router.add_api_route("/risk-assignments/kpis", risk_assignment.risk_assignment_kpis, methods=["GET"], tags=["risk-assignment"])
+router.add_api_route("/risk-assignments/apply-selected", risk_assignment.apply_selected_assignments, methods=["POST"], tags=["risk-assignment"])
+router.add_api_route("/risk-assignments", risk_assignment.list_risk_assignments, methods=["GET"], tags=["risk-assignment"])
+router.add_api_route("/organisation-hierarchy/{org_id}", risk_assignment.get_organisation_hierarchy, methods=["GET"], tags=["organisation-hierarchy"])
+
 router.add_api_route("/risks/{client_org_id}", org.list_risks, methods=["GET"], tags=["risks"])

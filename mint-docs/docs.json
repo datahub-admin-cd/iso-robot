@@ -37,7 +37,9 @@
               "flow/05-classifications",
               "flow/06-risk-discovery",
               "flow/07-risk-scoring",
-              "flow/08-risks-portal"
+              "flow/08-risks-portal",
+              "flow/09-risk-tagging",
+              "flow/10-risk-owner-assignment"
             ]
           },
           {
@@ -72,6 +74,8 @@
               "api-reference/risk-discovery",
               "api-reference/risk-scoring",
               "api-reference/risks-portal",
+              "api-reference/risk-tagging",
+              "api-reference/risk-owner-assignment",
               "api-reference/jobs"
             ]
           }

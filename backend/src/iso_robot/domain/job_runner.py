@@ -12,6 +12,8 @@ from iso_robot.domain.discover_risks import run_risk_discovery
 from iso_robot.domain.extract_controls import run_extract_controls_job
 from iso_robot.domain.issues_from_controls import run_issues_from_controls_job
 from iso_robot.domain.job_service import create_job
+from iso_robot.domain.risk_owner_assignment import run_risk_owner_assignment_job
+from iso_robot.domain.risk_tagging import run_risk_tagging_job
 from iso_robot.domain.score_risks import score_risks_job
 from iso_robot.repositories.job_repository import JobRepository
 
@@ -48,6 +50,12 @@ async def execute_job(job_id: str, job_type: str, payload: dict[str, Any]) -> No
 
             elif job_type in ("risk_discovery", "discover_risks"):
                 await run_risk_discovery(settings, conn)
+
+            elif job_type == "risk_tagging":
+                await run_risk_tagging_job(settings, conn, payload, job_id=job_id)
+
+            elif job_type == "risk_owner_assignment":
+                await run_risk_owner_assignment_job(settings, conn, payload, job_id=job_id)
 
             elif job_type == "issues_from_controls":
                 result = await run_issues_from_controls_job(settings, conn, payload)
