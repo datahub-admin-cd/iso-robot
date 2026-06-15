@@ -17,6 +17,7 @@ RUN pip install --no-cache-dir -r /app/backend/requirements.txt
 
 COPY backend/ /app/backend/
 COPY data/ /app/data/
+COPY ["ISO ROBOT RISK POC.xlsx", "/app/ISO ROBOT RISK POC.xlsx"]
 
 RUN mkdir -p /app/backend/data /app/all-docs \
     && chmod +x /app/backend/docker-entrypoint.sh
