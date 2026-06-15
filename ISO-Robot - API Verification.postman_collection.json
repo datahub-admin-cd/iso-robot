@@ -1808,7 +1808,7 @@
                 "{{clientOrgId}}"
               ]
             },
-            "description": "## Response 200\nApiResponse with array of RiskResponse in `data`."
+            "description": "## Purpose\nList the organisation's published risk register.\n\n## Response 200\nApiResponse envelope:\n- `data.risks` — array of register rows\n- `data.count` — number of risks returned\n\nEach risk includes core fields (`id`, `issue_id`, `risk_title`, `risk_rating`, …), tagging state (`tag_status`, `*_tags` as `{ id, name }` objects), owner state (`owner_assignment_status`, `owner_user_id`, `accountable_user_id`), and resolved hierarchy profiles (`owner`, `accountable` — `null` when not assigned)."
           },
           "response": []
         }

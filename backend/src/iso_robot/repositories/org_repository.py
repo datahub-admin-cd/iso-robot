@@ -553,7 +553,24 @@ class RiskRepository:
 
     async def list_for_org(self, client_org_id: str, limit: int = 1000) -> List[dict[str, Any]]:
         cur = await self._conn.execute(
-            "SELECT * FROM risks WHERE client_org_id = ? ORDER BY datetime(created_at) DESC LIMIT ?",
+            """
+            SELECT r.*,
+                   ou.name AS owner_name, ou.email AS owner_email, ou.title AS owner_title,
+                   au.name AS accountable_name, au.email AS accountable_email, au.title AS accountable_title
+            FROM risks r
+            LEFT JOIN (
+                SELECT user_id, client_org_id, name, email, title,
+                       ROW_NUMBER() OVER (PARTITION BY client_org_id, user_id ORDER BY datetime(created_at) DESC) AS rn
+                FROM org_hierarchy_users
+            ) ou ON ou.user_id = r.owner_user_id AND ou.client_org_id = r.client_org_id AND ou.rn = 1
+            LEFT JOIN (
+                SELECT user_id, client_org_id, name, email, title,
+                       ROW_NUMBER() OVER (PARTITION BY client_org_id, user_id ORDER BY datetime(created_at) DESC) AS rn
+                FROM org_hierarchy_users
+            ) au ON au.user_id = r.accountable_user_id AND au.client_org_id = r.client_org_id AND au.rn = 1
+            WHERE r.client_org_id = ?
+            ORDER BY datetime(r.created_at) DESC LIMIT ?
+            """,
             (client_org_id, limit),
         )
         rows = await cur.fetchall()
@@ -636,6 +653,22 @@ class RiskRepository:
             row[key] = _loads_json(raw)
         row.setdefault("tag_status", "untagged")
         row.setdefault("owner_assignment_status", "unassigned")
+
+        owner_name = row.pop("owner_name", None)
+        owner_email = row.pop("owner_email", None)
+        owner_title = row.pop("owner_title", None)
+        row["owner"] = (
+            {"id": row["owner_user_id"], "name": owner_name, "email": owner_email, "title": owner_title}
+            if row.get("owner_user_id") else None
+        )
+
+        accountable_name = row.pop("accountable_name", None)
+        accountable_email = row.pop("accountable_email", None)
+        accountable_title = row.pop("accountable_title", None)
+        row["accountable"] = (
+            {"id": row["accountable_user_id"], "name": accountable_name, "email": accountable_email, "title": accountable_title}
+            if row.get("accountable_user_id") else None
+        )
         return row
 
 
