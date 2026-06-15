@@ -109,22 +109,45 @@ async def update_demography(
         raise APIError("Organisation not found", code="CLIENT_ORG_NOT_FOUND", status_code=404)
 
     bd = body.business_demography
+    functions = bd.functions
+    if functions is None and bd.function_catalog:
+        functions = [item.function for item in bd.function_catalog]
+
+    function_catalog = (
+        [item.model_dump() for item in bd.function_catalog]
+        if bd.function_catalog is not None
+        else None
+    )
+    employee_hierarchy = (
+        [item.model_dump() for item in bd.employee_hierarchy]
+        if bd.employee_hierarchy is not None
+        else None
+    )
+    risk_assignment_rules = (
+        [item.model_dump() for item in bd.risk_assignment_rules]
+        if bd.risk_assignment_rules is not None
+        else None
+    )
+
     demo = await demo_repo.upsert(
         client_org_id=body.client_org_id,
-        industry=bd.get("industry"),
-        sub_industry=bd.get("sub_industry"),
-        employee_count=str(bd.get("employee_count")) if bd.get("employee_count") else None,
-        annual_revenue=bd.get("annual_revenue"),
-        headquarters_country=bd.get("headquarters_country") or bd.get("headquarters", "").split(",")[0].strip() or None,
-        headquarters_city=bd.get("headquarters_city") or (bd.get("headquarters", "").split(",")[1].strip() if "," in bd.get("headquarters", "") else None),
-        ownership_type=bd.get("ownership_type"),
-        regulatory_region=bd.get("regulatory_region"),
-        website=bd.get("website"),
-        functions=bd.get("functions", []),
-        locations=bd.get("locations", []),
-        processes=bd.get("processes", []),
-        regulatory_frameworks=bd.get("regulatory_frameworks", []),
-        notes=bd.get("notes"),
+        industry=bd.industry,
+        sub_industry=bd.sub_industry,
+        employee_count=str(bd.employee_count) if bd.employee_count else None,
+        annual_revenue=bd.annual_revenue,
+        headquarters_country=bd.headquarters_country or (bd.headquarters or "").split(",")[0].strip() or None,
+        headquarters_city=bd.headquarters_city or ((bd.headquarters or "").split(",")[1].strip() if "," in (bd.headquarters or "") else None),
+        ownership_type=bd.ownership_type,
+        regulatory_region=bd.regulatory_region,
+        website=bd.website,
+        functions=functions,
+        function_catalog=function_catalog,
+        employee_hierarchy=employee_hierarchy,
+        risk_assignment_rules=risk_assignment_rules,
+        locations=bd.locations,
+        processes=bd.processes,
+        regulatory_frameworks=bd.regulatory_frameworks,
+        notes=bd.notes,
     )
 
     await audit_repo.log(

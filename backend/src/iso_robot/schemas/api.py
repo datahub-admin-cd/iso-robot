@@ -275,11 +275,86 @@ class ProcessItem(BaseModel):
     process_owner: Optional[str] = None
 
 
+class FunctionCatalogItem(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    function_id: str = Field(alias="Function ID")
+    function: str = Field(alias="Function")
+    short_description: str = Field(alias="Short Description")
+    core_responsibilities: str = Field(alias="Core Responsibilities")
+    typical_sub_functions: str = Field(alias="Typical Sub-functions")
+    key_processes_records: str = Field(alias="Key Processes / Records")
+    risk_domains_supported: str = Field(alias="Risk Domains Supported")
+    typical_risk_owner: str = Field(alias="Typical Risk Owner")
+    typical_control_owner: str = Field(alias="Typical Control Owner")
+    assignment_logic: str = Field(alias="Assignment Logic")
+    criticality: Optional[str] = Field(default=None, alias="Criticality")
+
+
+class EmployeeHierarchyItem(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    role_id: str = Field(alias="Role ID")
+    parent_role_id: Optional[str] = Field(default=None, alias="Parent Role ID")
+    hierarchy_level: str = Field(alias="Hierarchy Level")
+    function_id: str = Field(alias="Function ID")
+    business_function: str = Field(alias="Business Function")
+    template_designation: str = Field(alias="Template Designation")
+    role_type: str = Field(alias="Role Type")
+    region_scope: str = Field(alias="Region / Scope")
+    role_description: str = Field(alias="Role Description")
+    risk_workflow_role: str = Field(alias="Risk Workflow Role")
+    likely_risks_owned_assigned: str = Field(alias="Likely Risks Owned / Assigned")
+    decision_rights_approval_authority: str = Field(alias="Decision Rights / Approval Authority")
+    primary_risk_tags: str = Field(alias="Primary Risk Tags")
+    escalation_role_id: Optional[str] = Field(default=None, alias="Escalation Role ID")
+
+
+class RiskAssignmentRuleItem(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    rule_id: str = Field(alias="Rule ID")
+    risk_issue_domain: str = Field(alias="Risk / Issue Domain")
+    trigger_keywords_signals: str = Field(alias="Trigger Keywords / Signals")
+    primary_function_id: str = Field(alias="Primary Function ID")
+    primary_assignment_role_id: str = Field(alias="Primary Assignment Role ID")
+    backup_role_id: Optional[str] = Field(default=None, alias="Backup Role ID")
+    escalation_role_id: Optional[str] = Field(default=None, alias="Escalation Role ID")
+    default_criticality: str = Field(alias="Default Criticality")
+    assignment_rationale: str = Field(alias="Assignment Rationale")
+    suggested_tags: str = Field(alias="Suggested Tags")
+    internal_data_needed: str = Field(alias="Internal Data Needed")
+    status: str = Field(alias="Status")
+
+
+class BusinessDemographyPayload(BaseModel):
+    model_config = ConfigDict(extra="ignore", populate_by_name=True)
+
+    industry: Optional[str] = None
+    sub_industry: Optional[str] = None
+    employee_count: Optional[str] = None
+    annual_revenue: Optional[str] = None
+    headquarters_country: Optional[str] = None
+    headquarters_city: Optional[str] = None
+    headquarters: Optional[str] = None
+    ownership_type: Optional[str] = None
+    regulatory_region: Optional[str] = None
+    website: Optional[str] = None
+    functions: Optional[List[Any]] = None
+    function_catalog: Optional[List[FunctionCatalogItem]] = None
+    employee_hierarchy: Optional[List[EmployeeHierarchyItem]] = None
+    risk_assignment_rules: Optional[List[RiskAssignmentRuleItem]] = None
+    locations: Optional[List[Any]] = None
+    processes: Optional[List[Any]] = None
+    regulatory_frameworks: Optional[List[Any]] = None
+    notes: Optional[str] = None
+
+
 class DemographyUpdateRequest(BaseModel):
     client_org_id: str
     tenant_id: Optional[str] = None
     updated_by: Optional[str] = None
-    business_demography: Dict[str, Any] = Field(default_factory=dict)
+    business_demography: BusinessDemographyPayload = Field(default_factory=BusinessDemographyPayload)
 
 
 class DemographyResponse(BaseModel):
@@ -295,6 +370,9 @@ class DemographyResponse(BaseModel):
     regulatory_region: Optional[str] = None
     website: Optional[str] = None
     functions: List[Any] = Field(default_factory=list)
+    function_catalog: List[Any] = Field(default_factory=list)
+    employee_hierarchy: List[Any] = Field(default_factory=list)
+    risk_assignment_rules: List[Any] = Field(default_factory=list)
     locations: List[Any] = Field(default_factory=list)
     processes: List[Any] = Field(default_factory=list)
     regulatory_frameworks: List[Any] = Field(default_factory=list)

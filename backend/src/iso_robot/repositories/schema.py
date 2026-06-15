@@ -17,6 +17,22 @@ _RISKS_STAGE_COLUMNS: dict[str, str] = {
 }
 
 
+_DEMOGRAPHY_STAGE_COLUMNS: dict[str, str] = {
+    "function_catalog": "TEXT NOT NULL DEFAULT '[]'",
+    "employee_hierarchy": "TEXT NOT NULL DEFAULT '[]'",
+    "risk_assignment_rules": "TEXT NOT NULL DEFAULT '[]'",
+}
+
+
+async def _migrate_demography_columns(conn: aiosqlite.Connection) -> None:
+    cur = await conn.execute("PRAGMA table_info(business_demography)")
+    rows = await cur.fetchall()
+    existing = {str(r[1]) for r in rows}
+    for column, ddl in _DEMOGRAPHY_STAGE_COLUMNS.items():
+        if column not in existing:
+            await conn.execute(f"ALTER TABLE business_demography ADD COLUMN {column} {ddl}")
+
+
 async def _migrate_risks_columns(conn: aiosqlite.Connection) -> None:
     cur = await conn.execute("PRAGMA table_info(risks)")
     rows = await cur.fetchall()
@@ -32,4 +48,5 @@ async def ensure_schema(conn: aiosqlite.Connection) -> None:
     script = sql_path.read_text(encoding="utf-8")
     await conn.executescript(script)
     await _migrate_risks_columns(conn)
+    await _migrate_demography_columns(conn)
     await conn.commit()

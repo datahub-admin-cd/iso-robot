@@ -148,6 +148,27 @@ DEFAULT_KPI_TEMPLATES: List[dict[str, Any]] = [
 _CRITICAL_PROCESS_TOKENS = {"regulatory", "financial", "compliance", "reporting", "payment", "settlement"}
 
 
+def _catalog_criticality(raw: Optional[str]) -> str:
+    normalized = (raw or "").strip().lower()
+    if "tier 1" in normalized or normalized == "critical":
+        return "critical"
+    return "standard"
+
+
+def _function_catalog_keywords(entry: dict[str, Any]) -> List[str]:
+    keywords: List[str] = []
+    for part in (
+        entry.get("function"),
+        entry.get("short_description"),
+        entry.get("risk_domains_supported"),
+        entry.get("assignment_logic"),
+        entry.get("key_processes_records"),
+    ):
+        if part:
+            keywords.extend(tokenize(str(part)))
+    return list(dict.fromkeys(keywords))
+
+
 def tokenize(text: str) -> List[str]:
     return re.findall(r"[a-z0-9]+", (text or "").lower())
 
@@ -186,16 +207,27 @@ async def ensure_default_catalogs(
     demography = await DemographyRepository(conn).get_by_org(client_org_id)
     demo = demography or {}
 
+    function_catalog = [f for f in (demo.get("function_catalog") or []) if isinstance(f, dict)]
+
     processes: List[dict[str, Any]] = []
     for p in demo.get("processes") or []:
         if isinstance(p, dict) and p.get("process_name"):
             processes.append({"name": str(p["process_name"]), "owner": p.get("process_owner")})
         elif isinstance(p, str) and p.strip():
             processes.append({"name": p.strip(), "owner": None})
+    if not processes and function_catalog:
+        for entry in function_catalog:
+            owner = entry.get("typical_risk_owner")
+            for proc in str(entry.get("key_processes_records") or "").split(";"):
+                name = proc.strip()
+                if name:
+                    processes.append({"name": name, "owner": owner})
     if not processes:
         processes = [{"name": n, "owner": None} for n in DEFAULT_PROCESSES]
 
     functions = [str(f) for f in (demo.get("functions") or []) if str(f).strip()]
+    if not functions and function_catalog:
+        functions = [str(entry.get("function")).strip() for entry in function_catalog if str(entry.get("function") or "").strip()]
     if not functions:
         functions = list(DEFAULT_FUNCTIONS)
 
@@ -225,25 +257,55 @@ async def ensure_default_catalogs(
             "catalog_version": CATALOG_VERSION,
         })
 
-    for fn in functions:
-        items.append({
-            "client_org_id": client_org_id,
-            "catalog_id": catalog_ids["function"],
-            "dimension": "function",
-            "name": fn,
-            "description": f"Business function: {fn}.",
-            "keywords": tokenize(fn),
-            "catalog_version": CATALOG_VERSION,
-        })
-        items.append({
-            "client_org_id": client_org_id,
-            "catalog_id": catalog_ids["department"],
-            "dimension": "department",
-            "name": fn,
-            "description": f"Department aligned to the {fn} function.",
-            "keywords": tokenize(fn),
-            "catalog_version": CATALOG_VERSION,
-        })
+    if function_catalog:
+        seen_functions: set[str] = set()
+        for entry in function_catalog:
+            name = str(entry.get("function") or "").strip()
+            if not name or name in seen_functions:
+                continue
+            seen_functions.add(name)
+            keywords = _function_catalog_keywords(entry)
+            criticality = _catalog_criticality(entry.get("criticality"))
+            description = str(entry.get("short_description") or f"Business function: {name}.")
+            items.append({
+                "client_org_id": client_org_id,
+                "catalog_id": catalog_ids["function"],
+                "dimension": "function",
+                "name": name,
+                "description": description,
+                "keywords": keywords or tokenize(name),
+                "criticality": criticality,
+                "catalog_version": CATALOG_VERSION,
+            })
+            items.append({
+                "client_org_id": client_org_id,
+                "catalog_id": catalog_ids["department"],
+                "dimension": "department",
+                "name": name,
+                "description": f"Department aligned to the {name} function.",
+                "keywords": keywords or tokenize(name),
+                "catalog_version": CATALOG_VERSION,
+            })
+    else:
+        for fn in functions:
+            items.append({
+                "client_org_id": client_org_id,
+                "catalog_id": catalog_ids["function"],
+                "dimension": "function",
+                "name": fn,
+                "description": f"Business function: {fn}.",
+                "keywords": tokenize(fn),
+                "catalog_version": CATALOG_VERSION,
+            })
+            items.append({
+                "client_org_id": client_org_id,
+                "catalog_id": catalog_ids["department"],
+                "dimension": "department",
+                "name": fn,
+                "description": f"Department aligned to the {fn} function.",
+                "keywords": tokenize(fn),
+                "catalog_version": CATALOG_VERSION,
+            })
 
     for kpi in DEFAULT_KPI_TEMPLATES:
         items.append({

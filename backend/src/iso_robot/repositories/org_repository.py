@@ -252,21 +252,44 @@ class DemographyRepository:
         regulatory_region: Optional[str] = None,
         website: Optional[str] = None,
         functions: Optional[List[str]] = None,
+        function_catalog: Optional[List[dict]] = None,
+        employee_hierarchy: Optional[List[dict]] = None,
+        risk_assignment_rules: Optional[List[dict]] = None,
         locations: Optional[List[dict]] = None,
         processes: Optional[List[dict]] = None,
         regulatory_frameworks: Optional[List[str]] = None,
         notes: Optional[str] = None,
     ) -> dict[str, Any]:
+        existing = await self.get_by_org(client_org_id)
+        if existing:
+            if functions is None:
+                functions = existing.get("functions")
+            if function_catalog is None:
+                function_catalog = existing.get("function_catalog")
+            if employee_hierarchy is None:
+                employee_hierarchy = existing.get("employee_hierarchy")
+            if risk_assignment_rules is None:
+                risk_assignment_rules = existing.get("risk_assignment_rules")
+            if locations is None:
+                locations = existing.get("locations")
+            if processes is None:
+                processes = existing.get("processes")
+            if regulatory_frameworks is None:
+                regulatory_frameworks = existing.get("regulatory_frameworks")
+            row_id = existing["id"]
+        else:
+            row_id = str(uuid.uuid4())
+
         now = _now_iso()
-        row_id = str(uuid.uuid4())
         await self._conn.execute(
             """
             INSERT INTO business_demography (
               id, client_org_id, industry, sub_industry, employee_count, annual_revenue,
               headquarters_country, headquarters_city, ownership_type, regulatory_region,
-              website, functions_json, locations_json, processes_json,
+              website, functions_json, function_catalog, employee_hierarchy,
+              risk_assignment_rules, locations_json, processes_json,
               regulatory_frameworks_json, notes, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(client_org_id) DO UPDATE SET
               industry = COALESCE(excluded.industry, industry),
               sub_industry = COALESCE(excluded.sub_industry, sub_industry),
@@ -278,6 +301,9 @@ class DemographyRepository:
               regulatory_region = COALESCE(excluded.regulatory_region, regulatory_region),
               website = COALESCE(excluded.website, website),
               functions_json = COALESCE(excluded.functions_json, functions_json),
+              function_catalog = COALESCE(excluded.function_catalog, function_catalog),
+              employee_hierarchy = COALESCE(excluded.employee_hierarchy, employee_hierarchy),
+              risk_assignment_rules = COALESCE(excluded.risk_assignment_rules, risk_assignment_rules),
               locations_json = COALESCE(excluded.locations_json, locations_json),
               processes_json = COALESCE(excluded.processes_json, processes_json),
               regulatory_frameworks_json = COALESCE(excluded.regulatory_frameworks_json, regulatory_frameworks_json),
@@ -289,6 +315,9 @@ class DemographyRepository:
                 headquarters_country, headquarters_city, ownership_type, regulatory_region,
                 website,
                 dumps_json(functions or []),
+                dumps_json(function_catalog or []),
+                dumps_json(employee_hierarchy or []),
+                dumps_json(risk_assignment_rules or []),
                 dumps_json(locations or []),
                 dumps_json(processes or []),
                 dumps_json(regulatory_frameworks or []),
@@ -303,7 +332,8 @@ class DemographyRepository:
             """
             SELECT id, client_org_id, industry, sub_industry, employee_count, annual_revenue,
                    headquarters_country, headquarters_city, ownership_type, regulatory_region,
-                   website, functions_json, locations_json, processes_json,
+                   website, functions_json, function_catalog, employee_hierarchy,
+                   risk_assignment_rules, locations_json, processes_json,
                    regulatory_frameworks_json, notes, created_at, updated_at
             FROM business_demography WHERE client_org_id = ?
             """,
@@ -314,6 +344,9 @@ class DemographyRepository:
             return None
         d = dict(row)
         d["functions"] = _loads_json(d.pop("functions_json", "[]"))
+        d["function_catalog"] = _loads_json(d.pop("function_catalog", "[]"))
+        d["employee_hierarchy"] = _loads_json(d.pop("employee_hierarchy", "[]"))
+        d["risk_assignment_rules"] = _loads_json(d.pop("risk_assignment_rules", "[]"))
         d["locations"] = _loads_json(d.pop("locations_json", "[]"))
         d["processes"] = _loads_json(d.pop("processes_json", "[]"))
         d["regulatory_frameworks"] = _loads_json(d.pop("regulatory_frameworks_json", "[]"))
