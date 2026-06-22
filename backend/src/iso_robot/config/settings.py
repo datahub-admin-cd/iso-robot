@@ -44,6 +44,40 @@ class Settings(BaseSettings):
     # Reasoning models (e.g. o4-mini) reject non-default temperature — leave unset.
     azure_openai_temperature: Optional[float] = Field(default=None)
     log_level: str = "INFO"
+
+    milvus_uri: str = Field(
+        default="http://localhost:19530",
+        description="Milvus gRPC endpoint. In Docker Compose: http://milvus-standalone:19530.",
+    )
+    milvus_token: str = Field(
+        default="",
+        description="Auth token for managed/secured Milvus (e.g. Zilliz Cloud). Empty for local standalone.",
+    )
+    milvus_db_name: str = Field(default="default", description="Milvus database name.")
+    milvus_collection: str = Field(
+        default="iso_robot_knowledge",
+        description="Single collection holding all org knowledge chunks, filtered by client_org_id.",
+    )
+
+    # Embeddings (Azure OpenAI)
+    azure_openai_embedding_deployment: str = Field(
+        default="",
+        description="Azure OpenAI embedding deployment name (e.g. text-embedding-3-small).",
+    )
+    azure_openai_embedding_dim: int = Field(
+        default=1536,
+        description="Embedding vector dimension; must match the embedding deployment + Milvus collection.",
+    )
+
+    # Chatbot retrieval
+    chatbot_top_k: int = Field(
+        default=8,
+        description="Default number of knowledge chunks retrieved per chat question.",
+    )
+    chatbot_max_context_chars: int = Field(
+        default=12_000,
+        description="Maximum characters of retrieved context passed to the chat model.",
+    )
     
     # ── JWT auth (sliding window) ─────────────────────────────────────────────
     jwt_secret_key: str = Field(

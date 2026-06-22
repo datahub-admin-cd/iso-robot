@@ -57,6 +57,14 @@ async def execute_job(job_id: str, job_type: str, payload: dict[str, Any]) -> No
             elif job_type == "risk_owner_assignment":
                 await run_risk_owner_assignment_job(settings, conn, payload, job_id=job_id)
 
+            elif job_type == "reindex_org":
+                from iso_robot.domain.indexing_service import build_indexing_service
+
+                org_id = payload.get("client_org_id")
+                if org_id:
+                    result = await build_indexing_service(settings, conn).reindex_org(str(org_id))
+                    await jobs.merge_payload(job_id, {"result": result})
+
             elif job_type == "issues_from_controls":
                 result = await run_issues_from_controls_job(settings, conn, payload)
 

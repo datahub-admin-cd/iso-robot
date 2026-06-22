@@ -12,6 +12,7 @@ from iso_robot.deps import (
     get_control_document_repo,
     get_demography_repo,
     get_folder_repo,
+    get_indexing_service,
     get_issue_score_repo,
     get_org_repo,
     get_risk_repo,
@@ -19,6 +20,7 @@ from iso_robot.deps import (
     get_user_repo,
     require_admin,
 )
+from iso_robot.domain.indexing_service import IndexingService
 from iso_robot.errors import APIError
 from iso_robot.repositories.org_repository import (
     AuditLogRepository,
@@ -102,6 +104,7 @@ async def update_demography(
     org_repo: Annotated[OrgRepository, Depends(get_org_repo)],
     demo_repo: Annotated[DemographyRepository, Depends(get_demography_repo)],
     audit_repo: Annotated[AuditLogRepository, Depends(get_audit_repo)],
+    indexing: Annotated[IndexingService, Depends(get_indexing_service)],
 ) -> ApiResponse:
     """API 3: Update business demography for a client organisation."""
     org = await org_repo.get_by_id(body.client_org_id)
@@ -158,6 +161,9 @@ async def update_demography(
         status="success",
         output_metadata={"demography_id": demo["id"]},
     )
+
+    # Refresh the org profile chunk in the vector index (best-effort, never fatal).
+    await indexing.index_org_profile(body.client_org_id, org=org, demography=demo)
 
     return ApiResponse(
         status="success",
@@ -411,6 +417,7 @@ async def upload_risks(
     org_repo: Annotated[OrgRepository, Depends(get_org_repo)],
     risk_repo: Annotated[RiskRepository, Depends(get_risk_repo)],
     audit_repo: Annotated[AuditLogRepository, Depends(get_audit_repo)],
+    indexing: Annotated[IndexingService, Depends(get_indexing_service)],
 ) -> ApiResponse:
     """API 10: Upload user-selected risks into the risk table."""
     org = await org_repo.get_by_id(body.client_org_id)
@@ -433,6 +440,9 @@ async def upload_risks(
             submitted_by=body.submitted_by,
         )
         created_ids.append(risk["id"])
+        normalized = await risk_repo.get_by_id(str(risk["id"]))
+        if normalized:
+            await indexing.index_published_risk(body.client_org_id, normalized)
 
     await audit_repo.log(
         api_name="risk_upload",

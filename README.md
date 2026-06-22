@@ -26,6 +26,23 @@ If you stay at the repo root without `cd backend`, set `PYTHONPATH=backend/src` 
 
 API base: `http://127.0.0.1:8000/api/v1` — OpenAPI at `/docs`.
 
+## Chatbot (Milvus vector DB + SSE)
+
+An org-scoped RAG chatbot answers questions over each organisation's data
+(risks, issues, controls, classifications, tags, owner assignments, org profile),
+indexed in a [Milvus](https://milvus.io) vector database. Searches are always
+filtered to the logged-in user's `client_org_id`, so tenants stay isolated.
+
+- `POST /api/v1/chatbot/query` — streaming answer over **SSE** (`retrieval` → `message` → `done`).
+- `POST /api/v1/chatbot/reindex` — backfill/rebuild the org's index (background job).
+- `GET  /api/v1/chatbot/status` — Milvus/embedding readiness + indexed chunk count.
+
+`docker compose up` starts Milvus Standalone (`etcd` + `minio` + `milvus-standalone`)
+alongside the API. Set `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` (e.g. `text-embedding-3-small`)
+to enable indexing and retrieval; without it the chatbot degrades gracefully. See
+[`backend/README.md`](backend/README.md#chatbot--vector-search-milvus) for the full
+variable list and an SSE client snippet.
+
 ## Frontend
 
 See [`frontend/README.md`](frontend/README.md).
@@ -59,3 +76,6 @@ Do not commit `.env` or API keys. `.env` may live at the repo root or under `bac
 ## Azure (integration)
 
 Control extraction (Document Intelligence + OpenAI JSON chat), issue classification, candidate risk synthesis, and library matching require configured Azure endpoints and keys. These calls were not integration-tested in CI without live credentials.
+
+The chatbot additionally needs an **Azure OpenAI embedding deployment**
+(`AZURE_OPENAI_EMBEDDING_DEPLOYMENT`, 1536-dim by default) for indexing and retrieval, plus a reachable Milvus instance (bundled in `docker-compose.yml`).

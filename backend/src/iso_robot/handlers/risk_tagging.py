@@ -6,7 +6,15 @@ from typing import Annotated, Any, Dict, List, Optional
 import aiosqlite
 from fastapi import BackgroundTasks, Depends, Query
 
-from iso_robot.deps import get_audit_repo, get_current_user, get_db, get_job_repo, get_org_repo
+from iso_robot.deps import (
+    get_audit_repo,
+    get_current_user,
+    get_db,
+    get_indexing_service,
+    get_job_repo,
+    get_org_repo,
+)
+from iso_robot.domain.indexing_service import IndexingService
 from iso_robot.domain.job_runner import execute_job
 from iso_robot.domain.job_service import create_job
 from iso_robot.domain.risk_tagging import (
@@ -288,6 +296,7 @@ async def apply_selected_tags(
     org_repo: Annotated[OrgRepository, Depends(get_org_repo)],
     audit_repo: Annotated[AuditLogRepository, Depends(get_audit_repo)],
     current_user: Annotated[dict, Depends(get_current_user)],
+    indexing: Annotated[IndexingService, Depends(get_indexing_service)],
 ) -> ApiResponse:
     await require_org(org_repo, body.client_org_id)
     require_org_access(current_user, body.client_org_id)
@@ -417,6 +426,17 @@ async def apply_selected_tags(
             code="TAG_ALREADY_APPLIED",
             status_code=409,
         )
+
+    for u in updated:
+        risk = await risks_repo.get_by_id(u["risk_id"])
+        if not risk:
+            continue
+        await indexing.index_published_risk(body.client_org_id, risk)
+        latest_tag = await tag_repo.latest_for_risk(u["risk_id"])
+        if latest_tag:
+            await indexing.index_risk_tag(
+                body.client_org_id, latest_tag, risk_title=risk.get("risk_title")
+            )
 
     await audit_repo.log(
         api_name="risk_tagging_apply_selected",

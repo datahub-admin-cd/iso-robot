@@ -112,4 +112,44 @@ first meet them in the pipeline.
     A deterministic rule-based backup used when the AI is unavailable, so the
     pipeline still produces output.
   </Accordion>
+  <Accordion title="RAG (Retrieval-Augmented Generation)" icon="database">
+    The chatbot architecture: before the AI writes an answer it first *retrieves*
+    the most relevant records from the organisation's vector index, then uses those
+    records as context. This keeps answers grounded in real data rather than relying
+    on the AI's training knowledge.
+  </Accordion>
+  <Accordion title="Vector / embedding" icon="wave-square">
+    A list of numbers (a vector) that captures the *meaning* of a piece of text.
+    Texts that are semantically similar have vectors that are close together in
+    space. ISO Robot converts every DB record into a vector so the chatbot can find
+    relevant records for any question — even if the words don't match exactly.
+  </Accordion>
+  <Accordion title="Milvus" icon="cube">
+    The vector database that stores the organisation's knowledge as embeddings.
+    It holds one collection (`iso_robot_knowledge`) partitioned by `client_org_id`,
+    so each org's data is physically separated and searches never cross tenant
+    boundaries.
+  </Accordion>
+  <Accordion title="Knowledge chunk" icon="puzzle-piece">
+    One piece of an organisation's data converted into text and embedded into
+    Milvus. Each chunk carries its entity type, entity id, stage, and source table
+    so search results can link back to the original DB record.
+  </Accordion>
+  <Accordion title="SSE (Server-Sent Events)" icon="tower-broadcast">
+    A one-way HTTP stream from server to client. The chatbot uses it to deliver the
+    answer word-by-word as the AI generates it, so users see the answer appear
+    progressively rather than waiting for the full response. Events are named
+    `retrieval`, `message`, `done`, and `error`.
+  </Accordion>
+  <Accordion title="Stage hint" icon="crosshairs">
+    An optional parameter on the chatbot query that biases vector search towards a
+    specific stage (`risk`, `issue`, `control`, `org`, etc.). If omitted, the server
+    auto-detects intent from keywords in the question.
+  </Accordion>
+  <Accordion title="Tenant isolation" icon="lock">
+    The guarantee that one organisation's data is never visible to another. In the
+    chatbot, this is enforced at two levels: the `client_org_id` in the Milvus
+    search filter (database level) is taken exclusively from the server-side JWT,
+    not from the request body.
+  </Accordion>
 </AccordionGroup>

@@ -57,6 +57,7 @@ flowchart LR
     I --> CR[🔎 Candidate risks]
     CR --> RA[📈 Scored risks<br/>inherent + residual]
     RA --> P[📋 Risk register]
+    P --> CB[💬 Chatbot<br/>ask anything]
 ```
 
 <Info>
@@ -102,9 +103,9 @@ toggles that let you switch between the plain-English view and the technical det
   </Tab>
 </Tabs>
 
-## The journey in eight stages
+## The journey in eleven stages
 
-The platform runs as **eight ordered stages**. The numbering matches the API
+The platform runs as **eleven ordered stages**. The numbering matches the API
 verification suite, so this document, the running system, and the test collection
 all line up.
 
@@ -133,6 +134,14 @@ all line up.
     Persist the analyst-approved risks to the organisation's register.
     → [Risks Portal](/flow/08-risks-portal)
   </Step>
+  <Step title="Tag & assign" icon="tags">
+    Attach process / function / KPI / region / control-family tags and accountable owners.
+    → [Risk Tagging](/flow/09-risk-tagging) · [Owner Assignment](/flow/10-risk-owner-assignment)
+  </Step>
+  <Step title="Ask the chatbot" icon="message-bot">
+    Query the entire register in plain English — streamed, grounded answers with citations.
+    → [Chatbot](/flow/11-chatbot)
+  </Step>
 </Steps>
 
 <Tip>
@@ -141,6 +150,6 @@ Short on time? The single best page to understand the whole system is the
 </Tip>
 
 <Note>
-This document covers the pipeline **through Stage 08 — Risks Portal**. Read-only
+This document covers the full pipeline through **Stage 11 — Chatbot**. Read-only
 "fetch latest" helpers and legacy/admin utilities are intentionally out of scope.
 </Note>

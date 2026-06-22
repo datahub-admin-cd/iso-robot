@@ -8,6 +8,7 @@ import aiosqlite
 
 from iso_robot.config import Settings
 from iso_robot.domain.heuristics import heuristic_classify_issue
+from iso_robot.domain.indexing_service import build_indexing_service
 from iso_robot.domain.llm_service import chat_json_object
 from iso_robot.repositories.issue_repository import IssueClassificationRepository, IssueRepository
 
@@ -250,6 +251,14 @@ async def classify_issue(
         classification=norm,
         model_version=model_version,
     )
+
+    # Index the issue with its fresh classification (best-effort, never fatal).
+    client_org_id = row.get("client_org_id")
+    if client_org_id:
+        await build_indexing_service(settings, conn).index_issue(
+            str(client_org_id), row, classification=norm
+        )
+
     return norm
 
 
@@ -265,8 +274,18 @@ async def classify_issues_job(
         todo = await issues.list_ids_missing_classification()
 
     done = 0
+    affected_orgs: set[str] = set()
     for iid in todo:
         result = await classify_issue(settings, conn, iid)
         if result is not None:
             done += 1
+            issue = await issues.get_by_id(iid)
+            if issue and issue.get("client_org_id"):
+                affected_orgs.add(str(issue["client_org_id"]))
+
+    # Rebuild the org-level PESTEL/SWOT/TVRA aggregate once per affected org.
+    if affected_orgs:
+        indexing = build_indexing_service(settings, conn)
+        for org_id in affected_orgs:
+            await indexing.reindex_aggregate(org_id)
     return done
