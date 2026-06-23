@@ -31,9 +31,11 @@ flowchart TD
     L --> M[09 · Apply selected tags]
     M --> N[10 · Owner assignment — JOB]
     N --> O[10 · Apply selected assignments]
+    O --> P[11 · Reindex org knowledge — JOB]
+    P --> Q[11 · Query chatbot — SSE stream]
 
     classDef job fill:#0E7490,stroke:#22D3EE,color:#fff;
-    class C,E,F,H,I,L,N job;
+    class C,E,F,H,I,L,N,P job;
 ```
 
 <Note>
@@ -108,6 +110,12 @@ Boxes in teal are **background jobs** — start, poll, then read the result. See
       <td>Accountable owners with alternates & rationale</td>
       <td>Job + sync apply</td>
     </tr>
+    <tr>
+      <td>[11 Chatbot (SSE RAG)](/flow/11-chatbot)</td>
+      <td>A question in plain English</td>
+      <td>Streamed, cited answer grounded in the org's own records</td>
+      <td>SSE stream (+ one-time reindex job)</td>
+    </tr>
   </tbody>
 </table>
 
@@ -137,6 +145,12 @@ Boxes in teal are **background jobs** — start, poll, then read the result. See
   </Step>
   <Step title="Publish">
     `POST /risks/upload-selected` → `GET /risks/{orgId}`.
+  </Step>
+  <Step title="Chatbot — build knowledge index">
+    `POST /chatbot/reindex` (once) → poll job → confirm `org_indexed_chunks > 0` via `GET /chatbot/status`.
+  </Step>
+  <Step title="Chatbot — ask questions">
+    `POST /chatbot/query` with `{ "question": "..." }` → read the SSE stream (`retrieval` → `message` → `done`).
   </Step>
 </Steps>
 

@@ -14,7 +14,9 @@ from iso_robot.errors import APIError
 from iso_robot.handlers import auth
 from iso_robot.handlers.health import health
 from iso_robot.domain.repair_storage_paths import repair_storage_paths
+from iso_robot.integrations.milvus_client import get_milvus_client
 from iso_robot.repositories.schema import ensure_schema
+from iso_robot.repositories.vector_repository import VectorRepository
 from iso_robot.middleware import SessionValidationMiddleware
 from iso_robot.routers.v1 import router as v1_router
 
@@ -36,6 +38,15 @@ async def lifespan(app: FastAPI):
             logging.getLogger(__name__).exception(
                 "Storage path repair failed; continuing startup"
             )
+
+    try:
+        milvus = get_milvus_client(settings)
+        if milvus is not None:
+            await VectorRepository(milvus, settings).ensure_collection()
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "Milvus collection bootstrap failed; continuing startup"
+        )
     yield
 
 

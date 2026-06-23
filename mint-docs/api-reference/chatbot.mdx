@@ -1,0 +1,255 @@
+---
+title: "Chatbot (SSE RAG)"
+description: "Stage 11 — three endpoints that power the Milvus-backed streaming chatbot: status check, knowledge reindex, and SSE question answering."
+icon: "message-bot"
+---
+
+All endpoints sit under `/api/v1`, require `Authorization: Bearer <token>`, and use the
+[common error format](/api-reference/conventions). Process narrative, architecture, and
+the SSE event model: [Stage 11 · Chatbot](/flow/11-chatbot).
+
+<Note>
+**Prerequisite:** `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` must be set and Milvus must be
+reachable before indexing or querying works. Call `GET /chatbot/status` first to
+confirm readiness.
+</Note>
+
+---
+
+## GET /chatbot/status
+
+```http
+GET /chatbot/status
+```
+
+**Auth:** Bearer · **Read-only**
+
+Returns the chatbot's readiness for the caller's org: whether Milvus is connected,
+whether embeddings are configured, and how many knowledge chunks have been indexed.
+
+### Response `200`
+
+```json
+{
+  "status": "success",
+  "message": "Chatbot status",
+  "data": {
+    "milvus_enabled": true,
+    "embeddings_configured": true,
+    "indexing_active": true,
+    "collection": "iso_robot_knowledge",
+    "client_org_id": "<org-uuid>",
+    "org_indexed_chunks": 142
+  }
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `milvus_enabled` | Milvus is configured and the client connected successfully |
+| `embeddings_configured` | `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` is set |
+| `indexing_active` | Both above are true — indexing and querying will work |
+| `org_indexed_chunks` | Chunks currently indexed for the caller's org (0 = run reindex first) |
+
+| HTTP | code |
+| --- | --- |
+| 401 | `UNAUTHORIZED` / `SESSION_INVALID` |
+
+---
+
+## POST /chatbot/reindex
+
+```http
+POST /chatbot/reindex
+```
+
+**Auth:** Bearer (202 Accepted)
+
+Queues a `reindex_org` background job that **wipes and rebuilds** the Milvus knowledge
+index for an org from the current SQLite database. Use this:
+
+- The **first time**, to load all existing data into the vector index.
+- After a **bulk import**, to catch records that pre-date the inline indexing hooks.
+- Occasionally, to repair any drift between the DB and the index.
+
+The inline hooks keep the index updated for new writes (controls extracted, issues
+classified, risks published, tags/assignments applied), so full reindexes are not
+needed routinely.
+
+### Request body
+
+```json
+{ "client_org_id": "<org-uuid>" }
+```
+
+Admins may pass any org's id. Non-admins may omit the field (or pass their own
+`client_org_id`) — the server forces it to their token's org.
+
+### Response `202`
+
+```json
+{
+  "status": "accepted",
+  "message": "Knowledge reindex started",
+  "data": {
+    "job_id": "<uuid>",
+    "type": "reindex_org",
+    "client_org_id": "<org-uuid>",
+    "processing_status": "in_progress"
+  }
+}
+```
+
+Poll `GET /jobs/{jobId}` until `status = completed`. The `payload.result` block reports
+chunk counts per entity type:
+
+```json
+{
+  "status": "completed",
+  "chunks": 142,
+  "by_entity": {
+    "org": 1,
+    "controls": 48,
+    "issues": 30,
+    "aggregate": 1,
+    "risks": 55,
+    "risk_tags": 5,
+    "assignments": 2
+  }
+}
+```
+
+| HTTP | code |
+| --- | --- |
+| 400 | `VALIDATION_ERROR` — no org could be resolved |
+| 401 | `UNAUTHORIZED` / `SESSION_INVALID` |
+| 403 | `FORBIDDEN` — non-admin targeting another org |
+
+---
+
+## POST /chatbot/query
+
+```http
+POST /chatbot/query
+```
+
+**Auth:** Bearer · **SSE stream response**
+
+Ask the chatbot a question. The server streams back a **Server-Sent Events** response
+(`Content-Type: text/event-stream`). The `client_org_id` is always taken from the
+Bearer token — the client never sends it, ensuring a user can only query their own
+org's knowledge.
+
+<Warning>
+Because the native browser `EventSource` cannot send custom headers, frontends must
+use `fetch` with a `ReadableStream` reader. Postman and curl handle this natively.
+</Warning>
+
+### Request body
+
+```json
+{
+  "question": "What are my highest rated risks and who owns them?",
+  "top_k": 8,
+  "stage_hint": "risk",
+  "history": [
+    { "role": "user", "content": "previous question" },
+    { "role": "assistant", "content": "previous answer" }
+  ]
+}
+```
+
+| Field | Required | Default | Notes |
+| --- | --- | --- | --- |
+| `question` | **Yes** | — | The question to ask |
+| `top_k` | No | 8 | Chunks to retrieve (1–50) |
+| `stage_hint` | No | auto-detected | Bias retrieval: `risk` \| `issue` \| `control` \| `org` \| `classification` \| `tag` \| `assignment` |
+| `history` | No | — | Prior turns for multi-turn conversation — the server is stateless |
+
+### SSE event stream
+
+Events arrive in this order:
+
+<Steps>
+  <Step title="retrieval — sources found">
+```text
+event: retrieval
+data: {
+  "sources": [
+    {
+      "entity_type": "risk",
+      "entity_id": "<uuid>",
+      "stage": "risk",
+      "source_table": "risks",
+      "score": 0.921,
+      "snippet": "Risk: Data breach due to..."
+    }
+  ]
+}
+```
+  </Step>
+  <Step title="message — answer tokens (one per token)">
+```text
+event: message
+data: {"delta": "Your "}
+
+event: message
+data: {"delta": "highest rated risk is..."}
+```
+  </Step>
+  <Step title="done — final citations">
+```text
+event: done
+data: {
+  "citations": [
+    { "entity_type": "risk", "entity_id": "<uuid>", "source_table": "risks", "score": 0.921 }
+  ]
+}
+```
+  </Step>
+</Steps>
+
+On any failure an `error` event is emitted instead of `done`:
+
+```text
+event: error
+data: {"message": "Chat failed: <reason>"}
+```
+
+### curl example
+
+```bash
+curl -N -X POST http://localhost:8000/api/v1/chatbot/query \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What are my highest rated risks?"}'
+```
+
+### Stage hints and intent detection
+
+If `stage_hint` is omitted, the server auto-detects intent from keywords in the
+question and boosts the matching stage during retrieval:
+
+| Keywords in question | Stages boosted |
+| --- | --- |
+| risk, residual, likelihood, mitigate | `risk`, `tag`, `assignment` |
+| issue, incident, event, news | `issue`, `classification` |
+| control, policy, requirement, clause, ISO | `control` |
+| owner, assigned, accountable, responsible | `assignment`, `risk` |
+| tag, process, function, KPI, department | `tag`, `risk` |
+| PESTEL, SWOT, TVRA, threat, vulnerability | `classification` |
+| company, organisation, industry, demography | `org` |
+
+Boosting is additive — the general top-k search always runs first, ensuring no
+context is lost.
+
+| HTTP | code |
+| --- | --- |
+| 401 | `UNAUTHORIZED` / `SESSION_INVALID` |
+| 403 | `FORBIDDEN` |
+
+<Info>
+Answers are grounded: the system prompt instructs the model to answer **only** from
+the retrieved context, cite source numbers, and say "I don't have that information"
+rather than guess. This keeps answers traceable to real records.
+</Info>

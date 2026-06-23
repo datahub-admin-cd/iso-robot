@@ -6,7 +6,15 @@ from typing import Annotated, Any, Dict, List, Optional
 import aiosqlite
 from fastapi import BackgroundTasks, Depends, Query
 
-from iso_robot.deps import get_audit_repo, get_current_user, get_db, get_job_repo, get_org_repo
+from iso_robot.deps import (
+    get_audit_repo,
+    get_current_user,
+    get_db,
+    get_indexing_service,
+    get_job_repo,
+    get_org_repo,
+)
+from iso_robot.domain.indexing_service import IndexingService
 from iso_robot.domain.job_runner import execute_job
 from iso_robot.domain.job_service import create_job
 from iso_robot.domain.risk_owner_assignment import HIGH_RATINGS, ensure_default_hierarchy
@@ -252,6 +260,7 @@ async def apply_selected_assignments(
     org_repo: Annotated[OrgRepository, Depends(get_org_repo)],
     audit_repo: Annotated[AuditLogRepository, Depends(get_audit_repo)],
     current_user: Annotated[dict, Depends(get_current_user)],
+    indexing: Annotated[IndexingService, Depends(get_indexing_service)],
 ) -> ApiResponse:
     await require_org(org_repo, body.client_org_id)
     require_org_access(current_user, body.client_org_id)
@@ -388,6 +397,17 @@ async def apply_selected_assignments(
             code="OWNER_ALREADY_ASSIGNED",
             status_code=409,
         )
+
+    for a in assigned:
+        risk = await risks_repo.get_by_id(a["risk_id"])
+        if not risk:
+            continue
+        await indexing.index_published_risk(body.client_org_id, risk)
+        latest_assignment = await assignment_repo.latest_for_risk(a["risk_id"])
+        if latest_assignment:
+            await indexing.index_assignment(
+                body.client_org_id, latest_assignment, risk_title=risk.get("risk_title")
+            )
 
     await audit_repo.log(
         api_name="risk_assignments_apply_selected",

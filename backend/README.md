@@ -72,6 +72,60 @@ Notable **API v1** routes:
 | GET | `/candidate-risks` | Candidates with latest match metadata |
 | GET | `/discovery-export` | Full JSON export |
 | POST | `/jobs` | Create job (`extract_controls`, `classify_issues`, `risk_discovery`, …) |
+| POST | `/chatbot/query` | **SSE** chat over the caller's org knowledge (events: `retrieval` → `message` → `done`/`error`) |
+| POST | `/chatbot/reindex` | Queue a full Milvus reindex for the caller's org (admins may target any org) |
+| GET | `/chatbot/status` | Milvus/embedding readiness + the org's indexed chunk count |
+
+## Chatbot & vector search (Milvus)
+
+The chatbot answers questions **only** from the logged-in user's organisation data
+(`client_org_id` from the JWT), using Retrieval-Augmented Generation over a
+[Milvus](https://milvus.io) vector index. The DB stays the source of truth; Milvus
+is a per-org read index kept in sync by the **Indexing Service**
+(`domain/indexing_service.py`), which is called after each successful write and via
+the `reindex` backfill job.
+
+Layering mirrors the rest of the app: `routers/v1.py` → `handlers/chatbot.py` →
+`domain/{retrieval,chat,indexing,embedding}_service.py` →
+`repositories/vector_repository.py` → `integrations/milvus_client.py`.
+
+**Tenant isolation:** every Milvus search is pinned to `client_org_id ==` the
+caller's org (a Milvus partition key), so one org can never see another's chunks.
+
+**Graceful degradation:** if `MILVUS_URI` is unreachable or the embedding
+deployment is unset, indexing becomes a no-op and chat returns a "no information"
+answer — the rest of the API keeps working.
+
+Required configuration:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `MILVUS_URI` | `http://localhost:19530` (compose: `http://milvus-standalone:19530`) | Milvus gRPC endpoint |
+| `MILVUS_TOKEN` | _(empty)_ | Auth token for managed/secured Milvus (e.g. Zilliz Cloud) |
+| `MILVUS_DB_NAME` | `default` | Milvus database |
+| `MILVUS_COLLECTION` | `iso_robot_knowledge` | Collection holding all org chunks |
+| `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` | _(empty, **required for chat**)_ | Azure embedding deployment, e.g. `text-embedding-3-small` |
+| `AZURE_OPENAI_EMBEDDING_DIM` | `1536` | Embedding dim (must match deployment + collection) |
+| `CHATBOT_TOP_K` | `8` | Chunks retrieved per question |
+| `CHATBOT_MAX_CONTEXT_CHARS` | `12000` | Max context characters sent to the chat model |
+
+Chat completions reuse the existing `AZURE_OPENAI_*` deployment (`stream=True`).
+
+**Consuming the SSE stream** (native `EventSource` cannot send an `Authorization`
+header, so use `fetch`):
+
+```js
+const res = await fetch("/api/v1/chatbot/query", {
+  method: "POST",
+  headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+  body: JSON.stringify({ question: "What are my highest rated risks?" }),
+});
+const reader = res.body.getReader();
+// parse `event:`/`data:` frames: retrieval (sources) → message (deltas) → done (citations)
+```
+
+First seed the index after data exists: `POST /api/v1/chatbot/reindex`, then poll
+`GET /api/v1/jobs/{job_id}` until completed.
 
 ## Defaults
 

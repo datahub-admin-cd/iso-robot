@@ -12,6 +12,7 @@ import aiosqlite
 
 from iso_robot.config import Settings
 from iso_robot.domain.heuristics import heuristic_controls_from_text
+from iso_robot.domain.indexing_service import build_indexing_service
 from iso_robot.domain.llm_service import chat_json_object
 from iso_robot.helpers.pdf_text import extract_pdf_text, extract_pdf_text_with_page_markers
 from iso_robot.helpers.text_chunk import chunk_by_chars
@@ -613,3 +614,15 @@ async def run_extract_controls_job(
             logger.exception("Extract failed for document %s", doc_id)
             if not settings.use_llm_fallback:
                 raise
+
+    # Refresh the control chunks in the vector index once per job
+    indexing = build_indexing_service(settings, conn)
+    org_ids: set[str] = {str(cid)} if cid else set()
+    if not org_ids:
+        ctrl_repo = ControlRepository(conn)
+        for doc_id in doc_ids:
+            for control in await ctrl_repo.get_by_document(doc_id):
+                if control.get("client_org_id"):
+                    org_ids.add(str(control["client_org_id"]))
+    for org_id in org_ids:
+        await indexing.reindex_controls(org_id)

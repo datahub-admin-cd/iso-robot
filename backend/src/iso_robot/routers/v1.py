@@ -16,6 +16,7 @@ from iso_robot.handlers import (
 )
 from iso_robot.handlers import auth, org, controls_org
 from iso_robot.handlers import risk_assignment, risk_tagging
+from iso_robot.handlers import chatbot
 
 router = APIRouter()
 
@@ -120,3 +121,8 @@ router.add_api_route("/risk-assignments", risk_assignment.list_risk_assignments,
 router.add_api_route("/organisation-hierarchy/{org_id}", risk_assignment.get_organisation_hierarchy, methods=["GET"], tags=["organisation-hierarchy"])
 
 router.add_api_route("/risks/{client_org_id}", org.list_risks, methods=["GET"], tags=["risks"])
+
+# ── Chatbot — Milvus-backed SSE assistant (scoped to the user's org) ───────────
+router.add_api_route("/chatbot/query", chatbot.chat_stream, methods=["POST"], tags=["chatbot"])
+router.add_api_route("/chatbot/reindex", chatbot.reindex, methods=["POST"], status_code=202, tags=["chatbot"])
+router.add_api_route("/chatbot/status", chatbot.chatbot_status, methods=["GET"], tags=["chatbot"])

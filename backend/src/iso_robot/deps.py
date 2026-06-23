@@ -102,6 +102,36 @@ async def get_audit_repo(
 ) -> AuditLogRepository:
     return AuditLogRepository(db)
 
+
+# Vector / chatbot dependencies
+
+async def get_vector_repo(
+    settings: Annotated[Settings, Depends(get_app_settings)],
+) -> "VectorRepository":
+    from iso_robot.integrations.milvus_client import get_milvus_client
+    from iso_robot.repositories.vector_repository import VectorRepository
+
+    return VectorRepository(get_milvus_client(settings), settings)
+
+
+async def get_indexing_service(
+    db: Annotated[aiosqlite.Connection, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_app_settings)],
+    vector_repo: Annotated["VectorRepository", Depends(get_vector_repo)],
+) -> "IndexingService":
+    from iso_robot.domain.indexing_service import IndexingService
+
+    return IndexingService(settings, vector_repo, db)
+
+
+async def get_retrieval_service(
+    settings: Annotated[Settings, Depends(get_app_settings)],
+    vector_repo: Annotated["VectorRepository", Depends(get_vector_repo)],
+) -> "RetrievalService":
+    from iso_robot.domain.retrieval_service import RetrievalService
+
+    return RetrievalService(settings, vector_repo)
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Auth dependency — reads the claims the middleware already validated, loads user.
 # ─────────────────────────────────────────────────────────────────────────────

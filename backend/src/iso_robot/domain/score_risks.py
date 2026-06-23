@@ -13,8 +13,9 @@ import aiosqlite
 
 from iso_robot.config import Settings
 from iso_robot.domain import risk_scoring as rs
+from iso_robot.domain.indexing_service import build_indexing_service
 from iso_robot.domain.llm_service import chat_json_object
-from iso_robot.repositories.issue_repository import IssueRepository
+from iso_robot.repositories.issue_repository import IssueClassificationRepository, IssueRepository
 from iso_robot.repositories.risk_assessment_repository import RiskAssessmentRepository
 from iso_robot.repositories.issue_control_repository import IssueControlRepository
 
@@ -71,6 +72,17 @@ async def score_issue(
         assessment=assessment,
         model_version=model_version,
     )
+
+    # Re-index the issue with its latest classification + this assessment so the
+    # chatbot can answer scoring questions (best-effort, never fatal).
+    client_org_id = row.get("client_org_id")
+    if client_org_id:
+        latest_cls = await IssueClassificationRepository(conn).get_latest_for_issue(issue_id)
+        classification = latest_cls.get("classification") if latest_cls else None
+        await build_indexing_service(settings, conn).index_issue(
+            str(client_org_id), row, classification=classification, assessment=assessment
+        )
+
     return assessment
 
 

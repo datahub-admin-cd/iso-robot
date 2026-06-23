@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "c5f74daa-904f-4817-9aaf-a1e7dbd344db",
     "name": "ISO-Robot - API Verification",
-    "description": "# ISO Robot API v1\n\n**Base URL:** `{{baseUrl}}` → must be `http://localhost:8000/api/v1`\n\n## Quick start\n1. Run **01 Auth → Login (Analyst)**\n2. Run folders **02 → 08** in order\n3. Run **09 Risk Tagging** then **10 Risk Owner Assignment** to tag and assign the register\n4. While jobs run, re-hit **11 Fetch Latest Data** to see DB rows grow\n5. Use **Poll job** requests until `status` = `completed`\n\n## End-to-end flow\n```mermaid\nflowchart TD\n    A[Login] --> B[Upload / list org documents]\n    B --> C[Extract controls - JOB]\n    C --> D[GET controls by orgId]\n    D --> E[Issues from controls - JOB]\n    E --> F[Classify issues - JOB]\n    F --> G[PESTEL / SWOT / TVRA aggregate]\n    G --> H[Risk discovery - JOB]\n    H --> I[Risk scoring - JOB]\n    I --> J[GET risk assessment]\n    J --> K[Upload selected risks]\n    K --> L[Risk tagging - JOB]\n    L --> M[Apply selected tags]\n    M --> N[Owner assignment - JOB]\n    N --> O[Apply selected assignments]\n```\n\n## Authentication\n| Route | Auth |\n|-------|------|\n| `POST /auth/login`, `POST /auth/register`, `GET /health` | **None** |\n| Everything else | `Authorization: Bearer {{token}}` |\n\nLogin saves `token` + `clientOrgId` to collection variables.\n\n## Error format (all endpoints)\n```json\n{ \"detail\": \"Human message\", \"code\": \"ERROR_CODE\" }\n```\n\n| HTTP | code | Meaning |\n|------|------|---------|\n| 401 | UNAUTHORIZED | Missing/invalid Bearer header |\n| 401 | SESSION_INVALID | Expired or bad JWT |\n| 401 | AUTH_FAILED | Wrong username/password |\n| 403 | FORBIDDEN | Org mismatch or not admin |\n| 404 | not_found | Resource missing |\n| 404 | CLIENT_ORG_NOT_FOUND | Bad org id |\n| 409 | DUPLICATE_RECORD | Slug/email taken |\n| 422 | validation_error | Bad request body |\n\n## Job system\nLong work runs in **background jobs**. Pattern:\n\n1. **Start** → POST returns `{ \"id\", \"type\", \"status\": \"pending\", ... }`\n2. **Poll** → `GET /jobs/{jobId}` until `completed` or `failed`\n3. **Fetch data** → GET list endpoints (controls, issues) — rows appear while job runs\n\n| Job type | Started by | What it does |\n|----------|------------|--------------|\n| `extract_controls` | `/control-documents/extract/{orgId}` | Azure DI + LLM → `controls` table |\n| `issues_from_controls` | `/issues/from-controls` | LLM synthesizes issues from controls |\n| `classify_issues` | `/issues/classify` or auto after step above | LLM/heuristic → `issue_classifications` |\n| `risk_discovery` | `/risk-discovery/run` | BM25 + LLM → `candidate_risks` |\n| `score_risks` | `/risk-scoring/run` | LLM + matrix → `risk_assessments` |\n| `risk_tagging` | `/risk-tagging/run` | Catalog matching + LLM → `risk_tags` (Stage 09) |\n| `risk_owner_assignment` | `/risk-assignments/run` | Weighted owner matching → `risk_assignments` (Stage 10) |\n\nJob status values: `pending` → `running` → `completed` | `failed` (see `error` field)\n",
+    "description": "# ISO Robot API v1\n\n**Base URL:** `{{baseUrl}}` → must be `http://localhost:8000/api/v1`\n\n## Quick start\n1. Run **01 Auth → Login (Analyst)**\n2. Run folders **02 → 08** in order\n3. Run **09 Risk Tagging** then **10 Risk Owner Assignment** to tag and assign the register\n4. While jobs run, re-hit **11 Fetch Latest Data** to see DB rows grow\n5. Use **Poll job** requests until `status` = `completed`\n\n## End-to-end flow\n```mermaid\nflowchart TD\n    A[Login] --> B[Upload / list org documents]\n    B --> C[Extract controls - JOB]\n    C --> D[GET controls by orgId]\n    D --> E[Issues from controls - JOB]\n    E --> F[Classify issues - JOB]\n    F --> G[PESTEL / SWOT / TVRA aggregate]\n    G --> H[Risk discovery - JOB]\n    H --> I[Risk scoring - JOB]\n    I --> J[GET risk assessment]\n    J --> K[Upload selected risks]\n    K --> L[Risk tagging - JOB]\n    L --> M[Apply selected tags]\n    M --> N[Owner assignment - JOB]\n    N --> O[Apply selected assignments]\n    O --> P[11 · Chatbot — check status]\n    P --> Q[11 · Reindex org knowledge — JOB]\n    Q --> R[11 · Query chatbot — SSE stream]\n\n    classDef job fill:#0E7490,stroke:#22D3EE,color:#fff;\n    class C,E,F,H,I,L,N,Q job;\n```\n\n## Quick start\n1. Run **01 Auth → Login (Analyst)**\n2. Run folders **02 → 08** in order\n3. Run **09 Risk Tagging** then **10 Risk Owner Assignment** to tag and assign the register\n4. While jobs run, re-hit **11 Fetch Latest Data** to see DB rows grow\n5. Use **Poll job** requests until `status` = `completed`\n6. Run **11 Chatbot** — check status, trigger reindex (once), then stream a question\n\n## Authentication\n| Route | Auth |\n|-------|------|\n| `POST /auth/login`, `POST /auth/register`, `GET /health` | **None** |\n| Everything else | `Authorization: Bearer {{token}}` |\n\nLogin saves `token` + `clientOrgId` to collection variables.\n\n## Error format (all endpoints)\n```json\n{ \"detail\": \"Human message\", \"code\": \"ERROR_CODE\" }\n```\n\n| HTTP | code | Meaning |\n|------|------|---------|\n| 401 | UNAUTHORIZED | Missing/invalid Bearer header |\n| 401 | SESSION_INVALID | Expired or bad JWT |\n| 401 | AUTH_FAILED | Wrong username/password |\n| 403 | FORBIDDEN | Org mismatch or not admin |\n| 404 | not_found | Resource missing |\n| 404 | CLIENT_ORG_NOT_FOUND | Bad org id |\n| 409 | DUPLICATE_RECORD | Slug/email taken |\n| 422 | validation_error | Bad request body |\n\n## Job system\nLong work runs in **background jobs**. Pattern:\n\n1. **Start** → POST returns `{ \"id\", \"type\", \"status\": \"pending\", ... }`\n2. **Poll** → `GET /jobs/{jobId}` until `completed` or `failed`\n3. **Fetch data** → GET list endpoints (controls, issues) — rows appear while job runs\n\n| Job type | Started by | What it does |\n|----------|------------|--------------|\n| `extract_controls` | `/control-documents/extract/{orgId}` | Azure DI + LLM → `controls` table |\n| `issues_from_controls` | `/issues/from-controls` | LLM synthesizes issues from controls |\n| `classify_issues` | `/issues/classify` or auto after step above | LLM/heuristic → `issue_classifications` |\n| `risk_discovery` | `/risk-discovery/run` | BM25 + LLM → `candidate_risks` |\n| `score_risks` | `/risk-scoring/run` | LLM + matrix → `risk_assessments` |\n| `risk_tagging` | `/risk-tagging/run` | Catalog matching + LLM → `risk_tags` (Stage 09) |\n| `risk_owner_assignment` | `/risk-assignments/run` | Weighted owner matching → `risk_assignments` (Stage 10) |\n| `reindex_org` | `/chatbot/reindex` | Build / rebuild the Milvus knowledge index for the org (Stage 11) |\n\n## Chatbot SSE note\nThe `/chatbot/query` response is an **SSE stream** (Server-Sent Events). Postman\ndisplays streaming responses natively — you will see `retrieval`, `message`, and `done`\nevents appear in sequence. If you prefer curl: `curl -N -X POST ... -H 'Authorization: Bearer TOKEN' -d '{\"question\":\"...\"}' http://localhost:8000/api/v1/chatbot/query`\n\nJob status values: `pending` → `running` → `completed` | `failed` (see `error` field)\n",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
     "_exporter_id": "25305867"
   },
@@ -3598,6 +3598,263 @@
         }
       ],
       "description": "Ad-hoc / legacy endpoints."
+    },
+    {
+      "name": "11 Chatbot (SSE RAG)",
+      "item": [
+        {
+          "name": "Chatbot status",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/chatbot/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["chatbot", "status"]
+            },
+            "description": "Check Milvus connectivity, embedding config, and the number of indexed chunks for the caller's org.\n\n## Response `200`\n```json\n{\n  \"status\": \"success\",\n  \"data\": {\n    \"milvus_enabled\": true,\n    \"embeddings_configured\": true,\n    \"indexing_active\": true,\n    \"collection\": \"iso_robot_knowledge\",\n    \"client_org_id\": \"<org-uuid>\",\n    \"org_indexed_chunks\": 142\n  }\n}\n```\n\n**Before running queries:** confirm `indexing_active` is `true` and `org_indexed_chunks` > 0 (trigger reindex if not).\n\n| HTTP | code |\n|------|------|\n| 401 | `UNAUTHORIZED` / `SESSION_INVALID` |"
+          },
+          "response": []
+        },
+        {
+          "name": "Trigger reindex (start job)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const json = pm.response.json();",
+                  "if (json && json.data && json.data.job_id) {",
+                  "  pm.collectionVariables.set('jobId', json.data.job_id);",
+                  "  console.log('reindex jobId saved:', json.data.job_id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/chatbot/reindex",
+              "host": ["{{baseUrl}}"],
+              "path": ["chatbot", "reindex"]
+            },
+            "description": "Queues a `reindex_org` background job that rebuilds the Milvus vector index for the caller's org from the current DB. Admins may pass `{ \"client_org_id\": \"<target-org>\" }` to reindex a different org.\n\nThe test script saves the returned `job_id` to `{{jobId}}`. Poll with **Poll job** below until `status = completed`, then hit **Chatbot status** to confirm chunk count.\n\n## Request body (optional)\n```json\n{ \"client_org_id\": \"<org-uuid>\" }\n```\nLeave `{}` to reindex your own org.\n\n## Response `202`\n```json\n{\n  \"status\": \"accepted\",\n  \"message\": \"Knowledge reindex started\",\n  \"data\": {\n    \"job_id\": \"<uuid>\",\n    \"type\": \"reindex_org\",\n    \"client_org_id\": \"<org-uuid>\",\n    \"processing_status\": \"in_progress\"\n  }\n}\n```\n\n| HTTP | code |\n|------|------|\n| 400 | `VALIDATION_ERROR` — no org resolved |\n| 401 | `UNAUTHORIZED` / `SESSION_INVALID` |\n| 403 | `FORBIDDEN` — non-admin targeting another org |"
+          },
+          "response": []
+        },
+        {
+          "name": "Poll reindex job",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/jobs/{{jobId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["jobs", "{{jobId}}"]
+            },
+            "description": "Poll the reindex job until `status = completed`. The `payload.result` block reports how many chunks were created per entity type.\n\n## Response `200` (completed)\n```json\n{\n  \"id\": \"<uuid>\",\n  \"type\": \"reindex_org\",\n  \"status\": \"completed\",\n  \"payload\": {\n    \"result\": {\n      \"status\": \"completed\",\n      \"chunks\": 142,\n      \"by_entity\": {\n        \"org\": 1,\n        \"controls\": 48,\n        \"issues\": 30,\n        \"aggregate\": 1,\n        \"risks\": 55,\n        \"risk_tags\": 5,\n        \"assignments\": 2\n      }\n    }\n  },\n  \"error\": null\n}\n```"
+          },
+          "response": []
+        },
+        {
+          "name": "Chat — stream answer (SSE)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Accept",
+                "value": "text/event-stream",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"What are my highest rated risks and who owns them?\",\n  \"top_k\": 8\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/chatbot/query",
+              "host": ["{{baseUrl}}"],
+              "path": ["chatbot", "query"]
+            },
+            "description": "Ask the chatbot a question. The response is a **Server-Sent Events (SSE) stream** — Postman will display each event as it arrives in the response panel.\n\n**Prerequisites:** `indexing_active = true` and `org_indexed_chunks > 0` (run **Trigger reindex** first if needed).\n\n## Request body\n```json\n{\n  \"question\": \"What are my highest rated risks and who owns them?\",\n  \"top_k\": 8,\n  \"stage_hint\": \"risk\",\n  \"history\": [\n    { \"role\": \"user\", \"content\": \"previous question\" },\n    { \"role\": \"assistant\", \"content\": \"previous answer\" }\n  ]\n}\n```\n\n| Field | Required | Notes |\n|-------|----------|-------|\n| `question` | Yes | The question to ask |\n| `top_k` | No | Chunks to retrieve (default 8, max 50) |\n| `stage_hint` | No | Bias retrieval: `risk` \\| `issue` \\| `control` \\| `org` \\| `classification` \\| `tag` \\| `assignment` |\n| `history` | No | Prior turns for multi-turn conversations |\n\n## SSE event stream\nFour event types arrive in order:\n\n```text\nevent: retrieval\ndata: {\"sources\":[{\"entity_type\":\"risk\",\"entity_id\":\"...\",\"stage\":\"risk\",\"score\":0.92,\"snippet\":\"Risk: ...\"}]}\n\nevent: message\ndata: {\"delta\":\"Your \"}\n\nevent: message\ndata: {\"delta\":\"highest rated risk is...\"}\n\nevent: done\ndata: {\"citations\":[{\"entity_type\":\"risk\",\"entity_id\":\"...\",\"source_table\":\"risks\",\"score\":0.92}]}\n```\n\nOn error:\n```text\nevent: error\ndata: {\"message\":\"Chat failed: ...\"}\n```\n\n**curl alternative:**\n```bash\ncurl -N -X POST http://localhost:8000/api/v1/chatbot/query \\\n  -H 'Authorization: Bearer TOKEN' \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"question\":\"What are my highest rated risks?\"}'\n```\n\n| HTTP | code |\n|------|------|\n| 401 | `UNAUTHORIZED` / `SESSION_INVALID` |\n| 403 | `FORBIDDEN` |"
+          },
+          "response": []
+        },
+        {
+          "name": "Chat — risk-specific question",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Accept",
+                "value": "text/event-stream",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"Which controls relate to data protection or GDPR compliance?\",\n  \"top_k\": 10,\n  \"stage_hint\": \"control\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/chatbot/query",
+              "host": ["{{baseUrl}}"],
+              "path": ["chatbot", "query"]
+            },
+            "description": "Example query biased towards controls using `stage_hint: control`. Useful for testing that control chunks are indexed and retrieved correctly."
+          },
+          "response": []
+        },
+        {
+          "name": "Chat — owner / assignment question",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              },
+              {
+                "key": "Accept",
+                "value": "text/event-stream",
+                "type": "text"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"Who is accountable for each risk in our register and what is their title?\",\n  \"stage_hint\": \"assignment\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/chatbot/query",
+              "host": ["{{baseUrl}}"],
+              "path": ["chatbot", "query"]
+            },
+            "description": "Example query biased towards owner assignments using `stage_hint: assignment`."
+          },
+          "response": []
+        }
+      ],
+      "description": "Stage 11 — Milvus-backed SSE RAG chatbot. Answers questions using **only** the caller's org's indexed knowledge (tenant-isolated). The `client_org_id` is taken from the Bearer token — the client never sends it.\n\n**Workflow:**\n1. `GET /chatbot/status` — confirm Milvus + embeddings are live.\n2. `POST /chatbot/reindex` → poll job → verify `org_indexed_chunks > 0`.\n3. `POST /chatbot/query` — ask a question; read the SSE stream.\n\n**SSE stream order:** `retrieval` (sources found) → `message` (answer tokens) → `done` (citations). On failure: `error`.\n\n**Note:** This endpoint requires the Azure OpenAI embedding deployment (`AZURE_OPENAI_EMBEDDING_DEPLOYMENT`) and a running Milvus instance to be active. Check `chatbot/status` first."
     }
   ],
   "event": [
