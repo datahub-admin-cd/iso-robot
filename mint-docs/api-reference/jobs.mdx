@@ -1,11 +1,17 @@
 ---
 title: "Jobs"
-description: "The shared background-job endpoint used to poll progress across every long-running stage."
+description: "Legacy per-job polling endpoints. For automated ingest, use GET /pipeline/status/{clientOrgId} instead."
 icon: "gears"
 ---
 
-Every long-running stage — extraction, classification, discovery, scoring — is
-driven through these endpoints. The pattern is explained in
+<Note>
+**Automated pipeline:** when you use `POST /ingest/{clientOrgId}`, poll
+`GET /pipeline/status/{clientOrgId}` — not individual job IDs. This page covers
+**legacy** per-stage jobs started by manual POST endpoints.
+</Note>
+
+Every long-running **manual** stage — extraction, classification, discovery,
+scoring — is driven through these endpoints. The pattern is explained in
 [Background Jobs](/process/background-jobs).
 
 ## Poll job status

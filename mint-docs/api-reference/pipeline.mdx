@@ -1,0 +1,324 @@
+---
+title: "Automated Pipeline"
+description: "Ingest documents and poll org-level pipeline status — the two endpoints that drive the automatic risk workflow."
+icon: "bolt"
+---
+
+The automated pipeline replaces the manual start-and-poll pattern for stages 03–09.
+Clients call **one ingest endpoint** to begin processing and **one status endpoint**
+to track progress. All intermediate stages run as Celery tasks behind RabbitMQ.
+
+Process narrative: [Automated Ingest Pipeline](/flow/00-automated-ingest-pipeline).
+
+---
+
+## Ingest documents
+
+```http
+POST /ingest/{clientOrgId}
+```
+
+**Auth:** Bearer · **Response:** `202 Accepted`
+
+Accepts one or more files, registers each document by content hash, and enqueues
+the full pipeline for the organisation. Returns immediately with a
+`pipeline_run_id` — processing happens asynchronously.
+
+### Path parameters
+
+| Param | Description |
+| --- | --- |
+| `clientOrgId` | Target organisation UUID |
+
+### Request (multipart form)
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `file` | file | Yes | — | Document to ingest. Repeat the field for multiple files. |
+| `save_to_storage` | boolean | No | `false` | When `true`, persist files to the org document folder (legacy upload behaviour). When `false`, only hash + metadata are kept. |
+| `force_reprocess` | boolean | No | `false` | Re-run the pipeline even when the content hash was already completed. |
+| `document_type` | string | No | — | Free-text type label (e.g. `policy`, `regulation`) |
+| `document_category` | string | No | — | Framework or category tag (e.g. `ISO27001`) |
+| `document_version` | string | No | — | Version label for the document |
+| `uploaded_by` | string | No | — | Audit attribution |
+
+### Example (curl)
+
+```bash
+curl -X POST "http://157.20.190.175:8000/api/v1/ingest/{clientOrgId}" \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "file=@policy.pdf" \
+  -F "file=@controls.docx" \
+  -F "save_to_storage=false" \
+  -F "document_type=policy" \
+  -F "document_category=ISO27001"
+```
+
+### Response `202`
+
+```json
+{
+  "status": "accepted",
+  "message": "Pipeline started",
+  "data": {
+    "pipeline_run_id": "550e8400-e29b-41d4-a716-446655440000",
+    "client_org_id": "686f6c71-0000-4000-8000-000000000001",
+    "status": "pending",
+    "current_stage": "received",
+    "documents": {
+      "total": 2,
+      "queued": 2,
+      "skipped_duplicates": 0
+    },
+    "document_ids": [
+      "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+    ],
+    "skipped_duplicates": []
+  }
+}
+```
+
+When some files are duplicates of already-processed content:
+
+```json
+{
+  "status": "accepted",
+  "message": "Pipeline started with skipped duplicates",
+  "data": {
+    "pipeline_run_id": "550e8400-e29b-41d4-a716-446655440000",
+    "client_org_id": "686f6c71-0000-4000-8000-000000000001",
+    "status": "pending",
+    "current_stage": "received",
+    "documents": {
+      "total": 2,
+      "queued": 1,
+      "skipped_duplicates": 1
+    },
+    "document_ids": ["a1b2c3d4-e5f6-7890-abcd-ef1234567890"],
+    "skipped_duplicates": [
+      {
+        "content_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "filename": "policy.pdf",
+        "document_id": "existing-uuid-if-known",
+        "reason": "already_processed"
+      }
+    ]
+  }
+}
+```
+
+### Errors
+
+| HTTP | code | Meaning |
+| --- | --- | --- |
+| 400 | `FILE_UPLOAD_FAILED` | No files supplied or all uploads failed |
+| 401 | `UNAUTHORIZED` / `SESSION_INVALID` | Missing or invalid token |
+| 403 | `FORBIDDEN` | Token org does not match `clientOrgId` |
+| 404 | `CLIENT_ORG_NOT_FOUND` | Unknown organisation |
+| 422 | `validation_error` | Invalid form fields |
+
+<Warning>
+Ensure the risk library is seeded (`POST /risk-library/seed-from-poc`) before
+ingesting. The automated pipeline runs risk discovery against that catalogue.
+</Warning>
+
+---
+
+## Get pipeline status
+
+```http
+GET /pipeline/status/{clientOrgId}
+```
+
+**Auth:** Bearer · **Response:** `200`
+
+Returns the current state of the organisation's pipeline — latest run by default.
+Use this endpoint to poll progress after ingest. No separate job IDs are required
+for individual stages.
+
+### Path parameters
+
+| Param | Description |
+| --- | --- |
+| `clientOrgId` | Organisation UUID |
+
+### Query parameters
+
+| Param | Type | Description |
+| --- | --- | --- |
+| `pipeline_run_id` | uuid | Return a specific run instead of the latest |
+| `include_history` | boolean | When `true`, include summary of recent completed runs |
+
+### Example (curl)
+
+```bash
+curl "http://157.20.190.175:8000/api/v1/pipeline/status/{clientOrgId}" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+### Response `200`
+
+```json
+{
+  "client_org_id": "686f6c71-0000-4000-8000-000000000001",
+  "pipeline_run_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "running",
+  "current_stage": "risk_scoring",
+  "progress_percent": 72,
+  "started_at": "2026-06-26T10:00:00.000Z",
+  "updated_at": "2026-06-26T10:04:32.000Z",
+  "completed_at": null,
+  "error": null,
+  "documents": {
+    "total": 5,
+    "processed": 3,
+    "remaining": 2,
+    "skipped_duplicates": 0,
+    "failed": 0,
+    "items": [
+      {
+        "document_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+        "filename": "policy.pdf",
+        "content_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "persisted": false,
+        "status": "completed",
+        "current_stage": "done",
+        "stages_completed": [
+          "extract_controls",
+          "issues_from_controls",
+          "classify_issues",
+          "generate_charts",
+          "risk_discovery",
+          "risk_scoring",
+          "risk_tagging"
+        ],
+        "error": null
+      },
+      {
+        "document_id": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+        "filename": "controls.docx",
+        "content_hash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+        "persisted": true,
+        "status": "running",
+        "current_stage": "extract_controls",
+        "stages_completed": [],
+        "error": null
+      }
+    ]
+  },
+  "stages": {
+    "extract_controls": {
+      "status": "completed",
+      "documents_total": 5,
+      "documents_done": 5
+    },
+    "issues_from_controls": {
+      "status": "completed",
+      "issues_created": 42
+    },
+    "classify_issues": {
+      "status": "completed",
+      "classified": 42
+    },
+    "generate_charts": {
+      "status": "completed",
+      "pestel_categories": 6,
+      "swot_quadrants": 4
+    },
+    "risk_discovery": {
+      "status": "completed",
+      "candidates": 18
+    },
+    "risk_scoring": {
+      "status": "running",
+      "scored": 12,
+      "total": 18
+    },
+    "risk_tagging": {
+      "status": "pending",
+      "tagged": 0,
+      "total": 0
+    }
+  }
+}
+```
+
+### `status` values (pipeline run)
+
+| Value | Meaning |
+| --- | --- |
+| `pending` | Run created; waiting for a worker |
+| `running` | Pipeline is actively processing |
+| `completed` | All stages finished successfully |
+| `partial` | Finished with one or more document-level failures |
+| `failed` | A stage failed and the run stopped |
+
+### `current_stage` values
+
+| Stage | Description |
+| --- | --- |
+| `received` | Ingest accepted; dedup in progress |
+| `extract_controls` | Azure DI + LLM control extraction |
+| `issues_from_controls` | Issue synthesis from controls |
+| `classify_issues` | PESTEL / SWOT / TVRA classification |
+| `generate_charts` | Chart aggregation |
+| `risk_discovery` | BM25 + LLM matching to risk library |
+| `risk_scoring` | Inherent and residual risk scoring |
+| `risk_tagging` | Catalog + LLM tag recommendations |
+| `done` | Pipeline complete |
+
+### Errors
+
+| HTTP | code | Meaning |
+| --- | --- | --- |
+| 401 | `UNAUTHORIZED` / `SESSION_INVALID` | Missing or invalid token |
+| 403 | `FORBIDDEN` | Token org does not match `clientOrgId` |
+| 404 | `CLIENT_ORG_NOT_FOUND` | Unknown organisation |
+| 404 | `PIPELINE_RUN_NOT_FOUND` | No run exists for the org (or bad `pipeline_run_id`) |
+
+---
+
+## Polling guidance
+
+<Steps>
+  <Step title="Capture pipeline_run_id">
+    From the `202` ingest response — optional for polling (status defaults to latest
+    run for the org).
+  </Step>
+  <Step title="Poll every 3–10 seconds">
+    `GET /pipeline/status/{clientOrgId}` while `status` is `pending` or `running`.
+  </Step>
+  <Step title="Stop when terminal">
+    Exit the poll loop when `status` is `completed`, `partial`, or `failed`.
+  </Step>
+  <Step title="Fetch output">
+    Read controls, issues, classifications, candidates, assessments, and tags via
+    the existing list endpoints.
+  </Step>
+</Steps>
+
+<Tip>
+`progress_percent` is a coarse UI hint derived from stage weights — use
+`current_stage` and `stages.*.status` for precise integration logic.
+</Tip>
+
+---
+
+## Relationship to legacy job endpoints
+
+The automated pipeline runs the same work as these manual triggers, but chains
+them internally:
+
+| Pipeline stage | Legacy manual endpoint |
+| --- | --- |
+| Extract controls | `POST /control-documents/extract/{orgId}` |
+| Issues from controls | `POST /issues/from-controls/{orgId}` |
+| Classify issues | `POST /issues/classify` (or auto-chained) |
+| Generate charts | `GET /classifications/aggregate` (now also persisted as a stage) |
+| Risk discovery | `POST /risk-discovery/run` |
+| Risk scoring | `POST /risk-scoring/run` |
+| Risk tagging | `POST /risk-tagging/run` |
+
+Legacy endpoints remain available for debugging and partial re-runs. See
+[Jobs](/api-reference/jobs) for the per-job poll pattern (`GET /jobs/{jobId}`).

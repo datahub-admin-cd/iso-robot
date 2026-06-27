@@ -1,19 +1,81 @@
 ---
 title: "End-to-End Flow"
-description: "The complete journey from login to a published risk register, as a single picture and an ordered checklist."
+description: "The complete journey from document ingest to a published risk register — automated pipeline and manual stage-by-stage paths."
 icon: "route"
 ---
 
-This page is the map. It shows the full pipeline — all eight stages — in one
-diagram, then summarises what goes in and what comes out at each stage. Use it as
-the index to the per-stage pages.
+This page is the map. It shows how documents become a scored, tagged risk register,
+then covers the optional publish, assign, and chatbot stages.
 
 <Note>
-**Read this first.** If you only read one page, read this one. It connects every
-stage so the detailed pages make sense in context.
+**Read this first.** The **automated ingest path** (two API calls) is the
+recommended integration for clients and webhooks. The manual stage-by-stage path
+remains available for debugging and analyst workflows.
 </Note>
 
-## The complete pipeline
+## Automated path (recommended)
+
+One ingest call starts the full pipeline. One status call tracks progress.
+
+```mermaid
+flowchart TD
+    A[01 · Login] --> B[POST /ingest/clientOrgId]
+    B --> C[Pipeline runs automatically]
+    C --> D1[Extract controls]
+    D1 --> D2[Issues from controls]
+    D2 --> D3[Classify issues]
+    D3 --> D4[Generate charts]
+    D4 --> D5[Risk discovery]
+    D5 --> D6[Risk scoring]
+    D6 --> D7[Risk tagging]
+    D7 --> E[GET /pipeline/status/clientOrgId]
+    E --> F{completed?}
+    F -- no --> E
+    F -- yes --> G[Read /controls /issues /risk-tags …]
+    G --> H[08 · Publish selected risks]
+    H --> I[10 · Owner assignment]
+    I --> J[11 · Chatbot]
+
+    classDef api fill:#1e40af,stroke:#93c5fd,color:#fff
+    classDef auto fill:#0E7490,stroke:#22D3EE,color:#fff
+    class B,E api
+    class D1,D2,D3,D4,D5,D6,D7 auto
+```
+
+Full detail: [Automated Ingest Pipeline](/flow/00-automated-ingest-pipeline) ·
+[Pipeline API](/api-reference/pipeline).
+
+### Automated happy path
+
+<Steps>
+  <Step title="Log in">
+    `POST /auth/login` → save `access_token` and `client_org_id`.
+  </Step>
+  <Step title="Seed risk library (once)">
+    `POST /risk-library/seed-from-poc` if not already done.
+  </Step>
+  <Step title="Ingest documents">
+    `POST /ingest/{clientOrgId}` with files and optional `save_to_storage` flag.
+    Capture `pipeline_run_id` from the `202` response.
+  </Step>
+  <Step title="Poll pipeline status">
+    `GET /pipeline/status/{clientOrgId}` every 3–10 s until `status` is
+    `completed`, `partial`, or `failed`.
+  </Step>
+  <Step title="Review output">
+    `GET /controls`, `GET /issues`, `GET /classifications/aggregate`,
+    `GET /candidate-risks`, `GET /issues/{id}/risk-assessment`, `GET /risk-tags`.
+  </Step>
+  <Step title="Publish & beyond (manual approval)">
+    `POST /risks/upload-selected` → owner assignment → chatbot reindex & query.
+  </Step>
+</Steps>
+
+---
+
+## Manual path (legacy / debugging)
+
+The original stage-by-stage flow — one POST per job, poll each `job_id` separately.
 
 ```mermaid
 flowchart TD
@@ -39,87 +101,11 @@ flowchart TD
 ```
 
 <Note>
-Boxes in teal are **background jobs** — start, poll, then read the result. See
-[Background Jobs](/process/background-jobs).
+Teal boxes are **background jobs** — start, poll `GET /jobs/{jobId}`, then read
+results. See [Background Jobs](/process/background-jobs).
 </Note>
 
-## Stage-by-stage summary
-
-<table>
-  <thead>
-    <tr><th>Stage</th><th>You provide</th><th>You get back</th><th>Mechanism</th></tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td>[01 Authentication](/flow/01-authentication)</td>
-      <td>Username & password</td>
-      <td>Bearer token + active org id</td>
-      <td>Sync</td>
-    </tr>
-    <tr>
-      <td>[02 Org & Documents](/flow/02-org-documents)</td>
-      <td>Org profile + control documents</td>
-      <td>Stored documents & demography</td>
-      <td>Sync</td>
-    </tr>
-    <tr>
-      <td>[03 Extract Controls](/flow/03-extract-controls)</td>
-      <td>Trigger on the org's PDFs</td>
-      <td>Page-referenced controls</td>
-      <td>Job</td>
-    </tr>
-    <tr>
-      <td>[04 Issues](/flow/04-issues)</td>
-      <td>Trigger on the org's controls</td>
-      <td>Risk issues (+ optional classification)</td>
-      <td>Job (+ chained job)</td>
-    </tr>
-    <tr>
-      <td>[05 Classifications](/flow/05-classifications)</td>
-      <td>An org with classified issues</td>
-      <td>PESTEL / SWOT / TVRA chart data</td>
-      <td>Sync read</td>
-    </tr>
-    <tr>
-      <td>[06 Risk Discovery](/flow/06-risk-discovery)</td>
-      <td>Seeded library + issues</td>
-      <td>Candidate risks matched to library</td>
-      <td>Job</td>
-    </tr>
-    <tr>
-      <td>[07 Risk Scoring](/flow/07-risk-scoring)</td>
-      <td>Issue ids</td>
-      <td>Inherent & residual risk assessments</td>
-      <td>Job</td>
-    </tr>
-    <tr>
-      <td>[08 Risks Portal](/flow/08-risks-portal)</td>
-      <td>Analyst-selected risks</td>
-      <td>Published risk register</td>
-      <td>Sync</td>
-    </tr>
-    <tr>
-      <td>[09 Risk Tagging](/flow/09-risk-tagging)</td>
-      <td>Trigger on the org's register</td>
-      <td>Reviewed process / function / KPI / region / control-family tags</td>
-      <td>Job + sync apply</td>
-    </tr>
-    <tr>
-      <td>[10 Risk Owner Assignment](/flow/10-risk-owner-assignment)</td>
-      <td>Hierarchy snapshot + tagged risks</td>
-      <td>Accountable owners with alternates & rationale</td>
-      <td>Job + sync apply</td>
-    </tr>
-    <tr>
-      <td>[11 Chatbot (SSE RAG)](/flow/11-chatbot)</td>
-      <td>A question in plain English</td>
-      <td>Streamed, cited answer grounded in the org's own records</td>
-      <td>SSE stream (+ one-time reindex job)</td>
-    </tr>
-  </tbody>
-</table>
-
-## The "happy path" run order
+### Manual happy path
 
 <Steps>
   <Step title="Log in">
@@ -143,19 +129,103 @@ Boxes in teal are **background jobs** — start, poll, then read the result. See
   <Step title="Score risks">
     `POST /risk-scoring/run` → poll → `GET /issues/{id}/risk-assessment`.
   </Step>
+  <Step title="Tag risks">
+    `POST /risk-tagging/run` → poll → `GET /risk-tags`.
+  </Step>
   <Step title="Publish">
     `POST /risks/upload-selected` → `GET /risks/{orgId}`.
   </Step>
-  <Step title="Chatbot — build knowledge index">
-    `POST /chatbot/reindex` (once) → poll job → confirm `org_indexed_chunks > 0` via `GET /chatbot/status`.
-  </Step>
-  <Step title="Chatbot — ask questions">
-    `POST /chatbot/query` with `{ "question": "..." }` → read the SSE stream (`retrieval` → `message` → `done`).
+  <Step title="Chatbot">
+    `POST /chatbot/reindex` (once) → `POST /chatbot/query` (SSE stream).
   </Step>
 </Steps>
 
+---
+
+## Stage-by-stage summary
+
+<table>
+  <thead>
+    <tr><th>Stage</th><th>You provide</th><th>You get back</th><th>Automated?</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>[01 Authentication](/flow/01-authentication)</td>
+      <td>Username & password</td>
+      <td>Bearer token + active org id</td>
+      <td>Manual (prerequisite)</td>
+    </tr>
+    <tr>
+      <td>[Automated Ingest](/flow/00-automated-ingest-pipeline)</td>
+      <td>Files via `POST /ingest/{orgId}`</td>
+      <td>Full pipeline output + `pipeline_run_id`</td>
+      <td><strong>Yes — stages 03–09</strong></td>
+    </tr>
+    <tr>
+      <td>[02 Org & Documents](/flow/02-org-documents)</td>
+      <td>Org profile + documents (or use ingest)</td>
+      <td>Stored documents & demography</td>
+      <td>Optional via `save_to_storage`</td>
+    </tr>
+    <tr>
+      <td>[03 Extract Controls](/flow/03-extract-controls)</td>
+      <td>Trigger on org PDFs</td>
+      <td>Page-referenced controls</td>
+      <td>Yes</td>
+    </tr>
+    <tr>
+      <td>[04 Issues](/flow/04-issues)</td>
+      <td>Trigger on org controls</td>
+      <td>Risk issues (+ classification)</td>
+      <td>Yes</td>
+    </tr>
+    <tr>
+      <td>[05 Classifications](/flow/05-classifications)</td>
+      <td>Classified issues</td>
+      <td>PESTEL / SWOT / TVRA chart data</td>
+      <td>Yes</td>
+    </tr>
+    <tr>
+      <td>[06 Risk Discovery](/flow/06-risk-discovery)</td>
+      <td>Seeded library + issues</td>
+      <td>Candidate risks matched to library</td>
+      <td>Yes</td>
+    </tr>
+    <tr>
+      <td>[07 Risk Scoring](/flow/07-risk-scoring)</td>
+      <td>Org issues</td>
+      <td>Inherent & residual risk assessments</td>
+      <td>Yes</td>
+    </tr>
+    <tr>
+      <td>[09 Risk Tagging](/flow/09-risk-tagging)</td>
+      <td>Scored issues</td>
+      <td>Tag recommendations</td>
+      <td>Yes</td>
+    </tr>
+    <tr>
+      <td>[08 Risks Portal](/flow/08-risks-portal)</td>
+      <td>Analyst-selected risks</td>
+      <td>Published risk register</td>
+      <td>Manual approval</td>
+    </tr>
+    <tr>
+      <td>[10 Risk Owner Assignment](/flow/10-risk-owner-assignment)</td>
+      <td>Hierarchy + tagged risks</td>
+      <td>Accountable owners</td>
+      <td>Manual approval</td>
+    </tr>
+    <tr>
+      <td>[11 Chatbot](/flow/11-chatbot)</td>
+      <td>A question in plain English</td>
+      <td>Streamed, cited answer</td>
+      <td>Manual trigger</td>
+    </tr>
+  </tbody>
+</table>
+
 <Tip>
-While any job runs, re-hit the matching read endpoint to watch rows accumulate.
-The relationship between "poll the job" and "fetch the data" is explained in
-[Background Jobs](/process/background-jobs).
+While the automated pipeline runs, poll `GET /pipeline/status/{clientOrgId}` for
+org-level progress. You can also re-hit list endpoints (`/controls`, `/issues`) to
+watch rows accumulate incrementally.
 </Tip>
